@@ -13,12 +13,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,8 +61,8 @@ import cn.a10miaomiao.bilidown.entity.BiliDownloadEntryInfo
 import cn.a10miaomiao.bilidown.entity.DownloadInfo
 import cn.a10miaomiao.bilidown.entity.DownloadItemInfo
 import cn.a10miaomiao.bilidown.entity.DownloadSortMode
-import cn.a10miaomiao.bilidown.entity.DownloadType
 import cn.a10miaomiao.bilidown.entity.applySort
+import cn.a10miaomiao.bilidown.entity.buildDownloadInfoList
 import cn.a10miaomiao.bilidown.entity.formatFileSize
 import cn.a10miaomiao.bilidown.entity.groupByAuthor
 import cn.a10miaomiao.bilidown.service.BiliDownService
@@ -93,7 +93,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 覆盖普通视频与番剧（番剧 entry 常缺顶层 bvid/avid）。
  * 返回 key 为 bvid 或 "av{avid}"；总超时 20 秒，超时返回已查到的部分。
  */
-private suspend fun fetchAuthors(
+internal suspend fun fetchAuthors(
     entries: List<BiliDownloadEntryInfo>,
 ): Map<String, BiliAuthorRepository.Author> {
     val needFetch = entries.filter { it.author.isBlank() }
@@ -129,7 +129,7 @@ private suspend fun fetchAuthors(
 }
 
 /** 分组去重用的稳定 key */
-private fun BiliDownloadEntryInfo.keyForAuthorFetch(): String {
+internal fun BiliDownloadEntryInfo.keyForAuthorFetch(): String {
     return bvid ?: ep?.bvid?.takeIf { it.isNotBlank() }
     ?: source?.av_id?.let { "av$it" }
     ?: avid?.let { "av$it" }
@@ -150,7 +150,7 @@ private fun BiliDownloadEntryInfo.authorKeyCandidates(): List<Pair<Long?, String
  * 列表已渲染后，异步补全缺失的 UP 主名称与头像并触发重组。
  * 仓库内部有内存+磁盘缓存，重启后已识别的 UP 主可立即返回。
  */
-private suspend fun fillMissingAuthors(
+internal suspend fun fillMissingAuthors(
     entryList: List<BiliDownloadEntryAndPathInfo>,
     newList: MutableList<DownloadInfo>,
     onUpdated: () -> Unit,
@@ -246,82 +246,8 @@ fun DownloadListPagePresenter(
             loading = true
             failMessage = ""
             val entryList = biliDownFile.readDownloadList()
-            val newList = mutableListOf<DownloadInfo>()
-            entryList.forEach {
-                val biliEntry = it.entry
-                var indexTitle = ""
-                var itemTitle = ""
-                var id = biliEntry.avid ?: 0L
-                var cid = 0L
-                var epid = 0L
-                var type = DownloadType.VIDEO
-                val page = biliEntry.page_data
-                if (page != null) {
-                    id = biliEntry.avid!!
-                    indexTitle = page.download_title ?: page.part ?: "${page.page}P"
-                    cid = page.cid
-                    type = DownloadType.VIDEO
-                    itemTitle = biliEntry.title
-                }
-                val ep = biliEntry.ep
-                val source = biliEntry.source
-                if (ep != null && source != null) {
-                    id = biliEntry.season_id!!.toLong()
-                    indexTitle = ep.index_title
-                    epid = ep.episode_id
-                    cid = source.cid
-                    type = DownloadType.BANGUMI
-                    itemTitle = if (ep.index_title.isNotBlank()) {
-                        ep.index_title
-                    } else {
-                        ep.index
-                    }
-                }
-                val item = DownloadItemInfo(
-                    dir_path = it.entryDirPath,
-                    media_type = biliEntry.media_type,
-                    has_dash_audio = biliEntry.has_dash_audio,
-                    is_completed = biliEntry.is_completed,
-                    total_bytes = biliEntry.total_bytes,
-                    downloaded_bytes = biliEntry.downloaded_bytes,
-                    title = itemTitle,
-                    cover = biliEntry.cover,
-                    id = id,
-                    type = type,
-                    cid = cid,
-                    epid = epid,
-                    index_title = indexTitle,
-                    author = biliEntry.author,
-                )
-                val last = newList.lastOrNull()
-                if (last != null
-                    && last.type == item.type
-                    && last.id == item.id
-                ) {
-                    if (last.is_completed && !item.is_completed) {
-                        last.is_completed = false
-                    }
-                    last.items.add(item)
-                } else {
-                    newList.add(
-                        DownloadInfo(
-                            dir_path = it.pageDirPath,
-                            media_type = biliEntry.media_type,
-                            has_dash_audio = biliEntry.has_dash_audio,
-                            is_completed = biliEntry.is_completed,
-                            total_bytes = biliEntry.total_bytes,
-                            downloaded_bytes = biliEntry.downloaded_bytes,
-                            title = biliEntry.title,
-                            cover = biliEntry.cover,
-                            cid = cid,
-                            id = id,
-                            type = type,
-                            author = item.author,
-                            items = mutableListOf(item)
-                        )
-                    )
-                }
-            }
+            // entry -> DownloadInfo 的映射逻辑与 UP 主详情页共用
+            val newList = buildDownloadInfoList(entryList)
             list = newList.toList()
             // 先渲染列表，再异步补全缺失的 UP 主名称，避免网络请求阻塞列表展示
             fillMissingAuthors(entryList, newList) {
@@ -647,53 +573,60 @@ fun DownloadListPage(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 80.dp),
             ) {
-                // 紧凑排序栏：默认 / 文件名 / 大小 + 升降序切换
+                // 紧凑排序栏：点击"文件名/大小"在 升序->降序 间循环切换，方向显示在 chip 内
                 item(key = "sort_bar") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(
-                            text = "排序",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         FilterChip(
                             selected = sortMode == DownloadSortMode.DEFAULT,
-                            onClick = { sortMode = DownloadSortMode.DEFAULT },
+                            onClick = {
+                                sortMode = DownloadSortMode.DEFAULT
+                                sortAsc = true
+                            },
                             label = { Text("默认") },
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         FilterChip(
                             selected = sortMode == DownloadSortMode.NAME,
-                            onClick = { sortMode = DownloadSortMode.NAME },
-                            label = { Text("文件名") },
+                            onClick = {
+                                if (sortMode == DownloadSortMode.NAME) {
+                                    // 已选中时再次点击，升降序循环逆转
+                                    sortAsc = !sortAsc
+                                } else {
+                                    sortMode = DownloadSortMode.NAME
+                                    sortAsc = true
+                                }
+                            },
+                            label = {
+                                Text(
+                                    if (sortMode == DownloadSortMode.NAME) {
+                                        if (sortAsc) "文件名 ↑" else "文件名 ↓"
+                                    } else "文件名"
+                                )
+                            },
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         FilterChip(
                             selected = sortMode == DownloadSortMode.SIZE,
-                            onClick = { sortMode = DownloadSortMode.SIZE },
-                            label = { Text("大小") },
-                        )
-                        if (sortMode != DownloadSortMode.DEFAULT) {
-                            IconButton(
-                                onClick = { sortAsc = !sortAsc },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (sortAsc) {
-                                        Icons.Filled.KeyboardArrowUp
-                                    } else {
-                                        Icons.Filled.KeyboardArrowDown
-                                    },
-                                    contentDescription = if (sortAsc) "升序" else "降序",
-                                    modifier = Modifier.size(18.dp),
+                            onClick = {
+                                if (sortMode == DownloadSortMode.SIZE) {
+                                    sortAsc = !sortAsc
+                                } else {
+                                    sortMode = DownloadSortMode.SIZE
+                                    sortAsc = true
+                                }
+                            },
+                            label = {
+                                Text(
+                                    if (sortMode == DownloadSortMode.SIZE) {
+                                        if (sortAsc) "大小 ↑" else "大小 ↓"
+                                    } else "大小"
                                 )
-                            }
-                        }
+                            },
+                        )
                     }
                 }
                 groups.forEach { group ->
@@ -703,37 +636,43 @@ fun DownloadListPage(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    expandedGroups.value =
-                                        if (expanded) {
-                                            expandedGroups.value - groupKey
-                                        } else {
-                                            expandedGroups.value + groupKey
-                                        }
-                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            AuthorAvatar(
-                                face = group.face,
-                                name = group.author,
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(
-                                modifier = Modifier.weight(1f),
+                            // 点击 UP 主信息区跳转到该 UP 主的视频列表页
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        navController.navigate(
+                                            BiliDownScreen.Author.route +
+                                                    "?packageName=${Uri.encode(packageName)}" +
+                                                    "&author=${Uri.encode(groupKey)}"
+                                        )
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    text = group.author.ifBlank { "未知UP主" },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                AuthorAvatar(
+                                    face = group.face,
+                                    name = group.author,
                                 )
-                                Text(
-                                    text = "${group.videos.size}个视频 · ${formatFileSize(group.totalSizeBytes)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    maxLines = 1,
-                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = group.author.ifBlank { "未知UP主" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${group.videos.size}个视频 · ${formatFileSize(group.totalSizeBytes)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                             if (selectMode) {
                                 TextButton(
@@ -752,15 +691,26 @@ fun DownloadListPage(
                                     Text("全选")
                                 }
                             } else {
-                                Icon(
-                                    imageVector = if (expanded) {
-                                        Icons.Filled.KeyboardArrowDown
-                                    } else {
-                                        Icons.Filled.KeyboardArrowRight
+                                IconButton(
+                                    onClick = {
+                                        expandedGroups.value =
+                                            if (expanded) {
+                                                expandedGroups.value - groupKey
+                                            } else {
+                                                expandedGroups.value + groupKey
+                                            }
                                     },
-                                    contentDescription = if (expanded) "收起" else "展开",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                )
+                                ) {
+                                    Icon(
+                                        imageVector = if (expanded) {
+                                            Icons.Filled.KeyboardArrowDown
+                                        } else {
+                                            Icons.Filled.KeyboardArrowRight
+                                        },
+                                        contentDescription = if (expanded) "收起" else "展开",
+                                        tint = MaterialTheme.colorScheme.outline,
+                                    )
+                                }
                             }
                         }
                     }
@@ -857,9 +807,10 @@ fun DownloadListPage(
 /**
  * UP 主头像：有头像 URL 时加载圆形网络头像，
  * 否则用名称首字符生成字母头像（番剧组等无头像场景）。
+ * 列表页分组头与 UP 主详情页共用。
  */
 @Composable
-private fun AuthorAvatar(
+internal fun AuthorAvatar(
     face: String?,
     name: String,
     size: Dp = 40.dp,

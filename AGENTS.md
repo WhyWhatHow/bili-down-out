@@ -11,6 +11,15 @@
 - 技术栈：Kotlin + Jetpack Compose (Material3) + Room + DataStore + Shizuku + OkHttp + kotlinx.serialization
 - minSdk 21 / targetSdk 35 / compileSdk 35
 
+## 文档索引（项目结构相关）
+
+| 文档 | 内容 |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | 面向 AI 代理/新人的项目结构、核心机制、构建与发布流程（即本文件，含下方"目录结构与关键文件"） |
+| [README.md](README.md) | 项目介绍、声明与 APK 下载入口 |
+| [fastlane/metadata/android/](fastlane/metadata/android/) | 应用商店元数据（多语言描述、截图、changelog） |
+| [.github/workflows/android.yml](.github/workflows/android.yml) | CI/CD：推送 `v*` 标签自动打 debug 包并发布到 GitHub Release |
+
 ## 构建与测试
 
 ```bash
@@ -24,7 +33,7 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 
 注意：
 - 无 release 签名（缺 `app/signing.properties` + keystore），一律出 debug 包。
-- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 103 / "1.3"）。
+- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 104 / "1.4"）。
 - 交付 APK 时复制到仓库根目录并按 `BiliDownOut-<版本>-debug.apk` 命名。
 - Android SDK 位于 `/opt/android-sdk`（local.properties 已配置则无需关心）。
 
@@ -32,9 +41,10 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 
 1. 确认单测通过、APK 打包成功、版本号已递增。
 2. git 提交所有变更（提交信息用中文，简述改动）。
-3. 推送到 `upstream` 远端（WhyWhatHow/bili-down-out）main 分支。
-4. 打 tag 并推送：`git tag -a v<版本> -m "说明" && git push upstream v<版本>`。
-5. 用 GitHub CLI 发 Release 并附上 APK：`gh release create v<版本> BiliDownOut-<版本>-debug.apk --title ... --notes ...`（远端为 `WhyWhatHow/bili-down-out`）。
+3. 推送到 `origin` 远端（WhyWhatHow/bili-down-out）main 分支。
+4. 打 tag 并推送：`git tag -a v<版本> -m "说明" && git push origin v<版本>`。
+5. CI/CD（`.github/workflows/android.yml`）自动完成：跑单测 → 打 debug 包 → 以 `BiliDownOut-<版本>-debug.apk` 发布到 GitHub Release（tag 信息作为 Release 说明）。
+6. 若 CI 不可用，可用 GitHub CLI 手动发版：`gh release create v<版本> BiliDownOut-<版本>-debug.apk --title ... --notes ...`。
 
 ## 目录结构与关键文件
 
@@ -61,6 +71,7 @@ app/src/main/java/cn/a10miaomiao/bilidown/
     ├── MainComposeApp.kt           # Scaffold + 底部导航（固定不隐藏）+ NavHost
     ├── page/
     │   ├── DownloadListPage.kt     # ★ 主列表页：UP分组折叠/排序栏/多选批量导出/异步UP补全
+    │   ├── AuthorPage.kt           # ★ UP主视频页：点分组头UP名称进入，支持多选批量导出
     │   ├── DownloadDetailPage.kt   # 单视频详情（分P列表、导出）
     │   ├── ProgressPage.kt         # 导出任务队列页
     │   ├── OutListPage.kt          # 已导出文件列表
@@ -79,12 +90,13 @@ app/src/main/java/cn/a10miaomiao/bilidown/
   - 并发 4 路 + 单条目一次重试，避免风控(-412)。
   - 结果持久化在 `filesDir/bili_author_cache.json`（`BiliAuthorRepository.init()` 在 App 启动时加载），重启/离线也能立即显示。
 - **番剧/影视没有 UP 主**：author 为空且 type==BANGUMI 的统一归入 `BANGUMI_GROUP_LABEL`（"番剧·影视"）分组，不再显示"未知UP主"。
-- UP 分组默认收起（`expandedGroups` 状态），点击分组头展开。
+- UP 分组默认收起（`expandedGroups` 状态），点击分组头右侧箭头展开/收起；点击 UP 主信息区（头像+名称）跳转 `AuthorPage`（该 UP 的视频列表，含多选批量导出）。
+- entry -> DownloadInfo 的映射逻辑在 `entity/DownloadInfo.kt` 的 `buildDownloadInfoList()`，列表页与 UP 主页共用，勿在页面里复制粘贴。
 
 ### 2. 导出队列（BiliDownService）
 
 - `tryAddTask` 入队后调用 `kickQueue()`：空闲时立即启动最早等待任务（**不要依赖 taskStatus StateFlow 变化触发**，状态未变时不会重发射）。
-- "导出后删除源文件"是全局设置（MorePage 开关，DataStore `exportDeleteSource`，默认关），BatchExportDialog/FileNameInputDialog 只展示不选择。
+- "导出后删除源文件"是全局设置（MorePage 开关，DataStore `exportDeleteSource`，默认关）。批量导出 BatchExportDialog 展示删除警示；单个导出 FileNameInputDialog 不再弹删除相关提示。
 - 批量导出的文件检查与入库必须包在 `withContext(Dispatchers.IO)` 中。
 
 ### 3. UI 约定
@@ -92,7 +104,8 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 - 底部导航栏固定显示（曾按滚动隐藏，已按需求移除，勿恢复 `ScaffoldScrollableState` 逻辑）。
 - 分组头：头像（网络头像或首字符字母头像 AuthorAvatar）+ 名称 + "N个视频 · 总大小"，右侧展开箭头；多选模式右侧变"全选"。
 - 长按列表项进入多选；底部浮条"全选/导出选中/退出"。
-- 排序栏：默认/文件名/大小 FilterChip + 升降序切换（中文用 `Collator(CHINA)` 拼音排序）。
+- 排序栏：默认/文件名/大小 FilterChip；点击已选中的"文件名/大小"chip 在 升序(↑)->降序(↓) 间循环逆转，方向显示在 chip 文案内（中文用 `Collator(CHINA)` 拼音排序）。
+- 列表项信息行：多P显示"NP · "，状态"已完成/暂停中"，再加总大小；单P不显示数量。
 
 ## 单元测试
 

@@ -174,6 +174,18 @@ fun MainNavHost(
         }
 
         defaultComposable(
+            BiliDownScreen.Author.route + "?packageName={packageName}&author={author}",
+            arguments = listOf(
+                navArgument("packageName") { type = NavType.StringType },
+                navArgument("author") { type = NavType.StringType }
+            )
+        ) {
+            val packageName = it.arguments?.getString("packageName") ?: ""
+            val author = it.arguments?.getString("author") ?: ""
+            AuthorPage(navController, packageName, author)
+        }
+
+        defaultComposable(
             BiliDownScreen.AddApp.route,
         ) { AddAppPage(navController) }
         defaultComposable(BiliDownScreen.About.route) { AboutPage(navController) }

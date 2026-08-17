@@ -135,4 +135,106 @@ class DownloadInfoTest {
         assertEquals("1.5 MB", formatFileSize((1.5 * 1024 * 1024).toLong()))
         assertEquals("1.00 GB", formatFileSize(1024L * 1024 * 1024))
     }
+
+    private fun entry(
+        dirPath: String,
+        avid: Long,
+        title: String,
+        author: String? = null,
+        completed: Boolean = true,
+    ) = BiliDownloadEntryAndPathInfo(
+        pageDirPath = dirPath,
+        entryDirPath = dirPath,
+        entry = BiliDownloadEntryInfo(
+            is_completed = completed,
+            total_bytes = 10,
+            downloaded_bytes = 10,
+            title = title,
+            cover = "",
+            prefered_video_quality = 1,
+            guessed_total_bytes = 0,
+            total_time_milli = 0,
+            danmaku_count = 0,
+            avid = avid,
+            owner = author?.let { BiliDownloadEntryInfo.OwnerInfo(name = it) },
+            page_data = BiliDownloadEntryInfo.PageInfo(
+                cid = avid,
+                page = 1,
+                has_alias = false,
+                tid = 0,
+                part = "P1",
+            ),
+        ),
+    )
+
+    @Test
+    fun `buildDownloadInfoList merges same video parts and keeps author`() {
+        val list = buildDownloadInfoList(
+            listOf(
+                entry("1", avid = 100, title = "视频A", author = "UP甲"),
+                entry("2", avid = 100, title = "视频A", author = "UP甲"),
+                entry("3", avid = 200, title = "视频B", author = "UP乙"),
+            )
+        )
+
+        assertEquals(2, list.size)
+        assertEquals(listOf("1", "2"), list[0].items.map { it.dir_path })
+        assertEquals("UP甲", list[0].author)
+        assertEquals("UP乙", list[1].author)
+    }
+
+    @Test
+    fun `buildDownloadInfoList incomplete part marks whole video incomplete`() {
+        val list = buildDownloadInfoList(
+            listOf(
+                entry("1", avid = 100, title = "A", completed = true),
+                entry("2", avid = 100, title = "A", completed = false),
+            )
+        )
+
+        assertEquals(1, list.size)
+        assertEquals(false, list[0].is_completed)
+    }
+
+    @Test
+    fun `buildDownloadInfoList bangumi entry maps to season id and BANGUMI type`() {
+        val bangumi = BiliDownloadEntryAndPathInfo(
+            pageDirPath = "s1",
+            entryDirPath = "s1",
+            entry = BiliDownloadEntryInfo(
+                is_completed = true,
+                total_bytes = 10,
+                downloaded_bytes = 10,
+                title = "番剧标题",
+                cover = "",
+                prefered_video_quality = 1,
+                guessed_total_bytes = 0,
+                total_time_milli = 0,
+                danmaku_count = 0,
+                season_id = "999",
+                source = BiliDownloadEntryInfo.SourceInfo(av_id = 1, cid = 2),
+                ep = BiliDownloadEntryInfo.EpInfo(
+                    av_id = 1,
+                    page = 1,
+                    danmaku = 0,
+                    cover = "",
+                    episode_id = 5,
+                    index = "1",
+                    index_title = "第1话",
+                    from = "",
+                    season_type = 1,
+                    width = 0,
+                    height = 0,
+                    rotate = 0,
+                ),
+            ),
+        )
+
+        val list = buildDownloadInfoList(listOf(bangumi))
+
+        assertEquals(1, list.size)
+        assertEquals(DownloadType.BANGUMI, list[0].type)
+        assertEquals(999L, list[0].id)
+        assertEquals("第1话", list[0].items[0].title)
+    }
 }

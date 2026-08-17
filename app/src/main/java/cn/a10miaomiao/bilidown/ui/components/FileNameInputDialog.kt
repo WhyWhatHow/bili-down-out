@@ -23,7 +23,6 @@ fun FileNameInputDialog(
     fileName: String,
     confirmText: String,
     author: String = "",
-    deleteSourceEnabled: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (outFile: BiliDownOutFile) -> Unit,
 ) {
@@ -97,19 +96,8 @@ fun FileNameInputDialog(
                             onDone = { handleConfirm() }
                         ),
                     )
-                    Text(
-                        text = if (deleteSourceEnabled) {
-                            "导出成功后将删除源文件（哔哩缓存，不可恢复）！可在设置中关闭"
-                        } else {
-                            "导出后保留源文件（可在设置中开启删除）"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (deleteSourceEnabled) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        },
-                    )
+                    // 「导出后删除源文件」由设置页全局控制：
+                    // 已开启时不再弹出提示（用户已知情），未开启时无破坏性行为也无需提示。
                 }
             },
             confirmButton = {

@@ -80,14 +80,17 @@ fun DownloadListItem(
                             overflow = TextOverflow.Ellipsis,
                         )
                         val status = if (item.is_completed) {
-                            "已完成下载"
+                            "已完成"
                         } else {
                             "暂停中"
                         }
+                        // 多P才显示分P数量，单P无需冗余信息
+                        val partText = if (item.items.size > 1) "${item.items.size}P · " else ""
                         val totalSize = item.items.sumOf { it.total_bytes }
                         Text(
-                            text = "${item.items.size}个视频 • $status • ${formatFileSize(totalSize)}",
+                            text = "$partText$status · ${formatFileSize(totalSize)}",
                             maxLines = 1,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline,
                             overflow = TextOverflow.Ellipsis,
                         )

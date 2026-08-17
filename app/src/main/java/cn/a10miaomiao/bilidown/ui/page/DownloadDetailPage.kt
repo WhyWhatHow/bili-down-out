@@ -276,7 +276,6 @@ fun DownloadDetailPage(
         showInputDialog = selectedItem != null,
         fileName = selectedItem?.title ?: "",
         author = selectedItem?.author ?: "",
-        deleteSourceEnabled = deleteSourceEnabled,
         onDismiss = {
             selectedItem = null
         },

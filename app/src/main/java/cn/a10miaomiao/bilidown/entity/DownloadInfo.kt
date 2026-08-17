@@ -118,6 +118,93 @@ fun List<DownloadGroup>.applySort(
     }
 }
 
+/**
+ * 将 entry.json 读取结果映射为列表展示用的 DownloadInfo 列表。
+ * 同一视频（type + id 相同）的多个分P 会合并到同一个 DownloadInfo 的 items 中。
+ * 列表页与 UP 主详情页共用该逻辑，保持分组行为一致。
+ */
+fun buildDownloadInfoList(
+    entryList: List<BiliDownloadEntryAndPathInfo>,
+): MutableList<DownloadInfo> {
+    val newList = mutableListOf<DownloadInfo>()
+    entryList.forEach {
+        val biliEntry = it.entry
+        var indexTitle = ""
+        var itemTitle = ""
+        var id = biliEntry.avid ?: 0L
+        var cid = 0L
+        var epid = 0L
+        var type = DownloadType.VIDEO
+        val page = biliEntry.page_data
+        if (page != null) {
+            id = biliEntry.avid!!
+            indexTitle = page.download_title ?: page.part ?: "${page.page}P"
+            cid = page.cid
+            type = DownloadType.VIDEO
+            itemTitle = biliEntry.title
+        }
+        val ep = biliEntry.ep
+        val source = biliEntry.source
+        if (ep != null && source != null) {
+            id = biliEntry.season_id!!.toLong()
+            indexTitle = ep.index_title
+            epid = ep.episode_id
+            cid = source.cid
+            type = DownloadType.BANGUMI
+            itemTitle = if (ep.index_title.isNotBlank()) {
+                ep.index_title
+            } else {
+                ep.index
+            }
+        }
+        val item = DownloadItemInfo(
+            dir_path = it.entryDirPath,
+            media_type = biliEntry.media_type,
+            has_dash_audio = biliEntry.has_dash_audio,
+            is_completed = biliEntry.is_completed,
+            total_bytes = biliEntry.total_bytes,
+            downloaded_bytes = biliEntry.downloaded_bytes,
+            title = itemTitle,
+            cover = biliEntry.cover,
+            id = id,
+            type = type,
+            cid = cid,
+            epid = epid,
+            index_title = indexTitle,
+            author = biliEntry.author,
+        )
+        val last = newList.lastOrNull()
+        if (last != null
+            && last.type == item.type
+            && last.id == item.id
+        ) {
+            if (last.is_completed && !item.is_completed) {
+                last.is_completed = false
+            }
+            last.items.add(item)
+        } else {
+            newList.add(
+                DownloadInfo(
+                    dir_path = it.pageDirPath,
+                    media_type = biliEntry.media_type,
+                    has_dash_audio = biliEntry.has_dash_audio,
+                    is_completed = biliEntry.is_completed,
+                    total_bytes = biliEntry.total_bytes,
+                    downloaded_bytes = biliEntry.downloaded_bytes,
+                    title = biliEntry.title,
+                    cover = biliEntry.cover,
+                    cid = cid,
+                    id = id,
+                    type = type,
+                    author = item.author,
+                    items = mutableListOf(item)
+                )
+            )
+        }
+    }
+    return newList
+}
+
 /** 文件大小格式化 */
 fun formatFileSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
