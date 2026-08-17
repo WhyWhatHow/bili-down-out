@@ -102,7 +102,7 @@ internal suspend fun fetchAuthors(
     if (needFetch.isEmpty()) {
         return emptyMap()
     }
-    return withTimeoutOrNull(20_000L) {
+    val result = withTimeoutOrNull(20_000L) {
         val fetched = ConcurrentHashMap<String, BiliAuthorRepository.Author>()
         coroutineScope {
             // 并发 4 路，降低触发 B 站风控(-412)的概率
@@ -127,6 +127,9 @@ internal suspend fun fetchAuthors(
         }
         fetched.toMap()
     } ?: emptyMap()
+    // 批量结束后统一落盘（成功映射 + 负缓存），避免每条请求都写文件
+    BiliAuthorRepository.persist()
+    return result
 }
 
 /** 分组去重用的稳定 key */
@@ -147,32 +150,12 @@ private fun BiliDownloadEntryInfo.authorKeyCandidates(): List<Pair<Long?, String
     return list
 }
 
-/**
- * 列表已渲染后，异步补全缺失的 UP 主名称与头像并触发重组。
- * 仓库内部有内存+磁盘缓存，重启后已识别的 UP 主可立即返回。
- */
-internal suspend fun fillMissingAuthors(
-    entryList: List<BiliDownloadEntryAndPathInfo>,
+/** 将 dirPath -> Author 映射应用回列表（组内任一分P命中即视为该视频的 UP 主） */
+private fun applyAuthors(
     newList: MutableList<DownloadInfo>,
-    onUpdated: () -> Unit,
+    dirToAuthor: Map<String, BiliAuthorRepository.Author>,
 ) {
-    val hasMissing = newList.any { it.author.isBlank() }
-    if (!hasMissing) {
-        return
-    }
-    val authorMap = fetchAuthors(entryList.map { it.entry })
-    if (authorMap.isEmpty()) {
-        return
-    }
-    val dirToAuthor = entryList.mapNotNull { info ->
-        authorMap[info.entry.keyForAuthorFetch()]
-            ?.let { info.entryDirPath to it }
-    }.toMap()
-    if (dirToAuthor.isEmpty()) {
-        return
-    }
     newList.forEach { downloadInfo ->
-        // 组内任一分P命中即视为该视频的 UP 主
         val author = downloadInfo.items
             .firstNotNullOfOrNull { dirToAuthor[it.dir_path] }
             ?: return@forEach
@@ -180,6 +163,51 @@ internal suspend fun fillMissingAuthors(
         downloadInfo.authorFace = author.face
         downloadInfo.items.forEach { it.author = author.name }
     }
+}
+
+/**
+ * 列表已渲染后，异步补全缺失的 UP 主名称与头像并触发重组。
+ *
+ * @param fetchRemote true=网络补全（列表页首载）；false=只查本地磁盘缓存、
+ *   毫秒级返回（UP 主页兜底路径），已知缓存的 UP 主立即显示、查不到的归
+ *   "未知UP主/番剧·影视"组，不再等待网络超时。
+ */
+internal suspend fun fillMissingAuthors(
+    entryList: List<BiliDownloadEntryAndPathInfo>,
+    newList: MutableList<DownloadInfo>,
+    fetchRemote: Boolean = true,
+    onUpdated: () -> Unit = {},
+) {
+    val hasMissing = newList.any { it.author.isBlank() }
+    if (!hasMissing) {
+        return
+    }
+    val dirToAuthor = if (fetchRemote) {
+        val authorMap = fetchAuthors(entryList.map { it.entry })
+        if (authorMap.isEmpty()) {
+            return
+        }
+        entryList.mapNotNull { info ->
+            authorMap[info.entry.keyForAuthorFetch()]
+                ?.let { info.entryDirPath to it }
+        }.toMap()
+    } else {
+        // 纯本地：只用已持久化的映射（peekAuthor 不发网络请求）
+        entryList.mapNotNull { info ->
+            if (!info.entry.author.isBlank()) {
+                return@mapNotNull null
+            }
+            val author = info.entry.authorKeyCandidates()
+                .firstNotNullOfOrNull { (avid, bvid) ->
+                    BiliAuthorRepository.peekAuthor(avid, bvid)
+                }
+            author?.let { info.entryDirPath to it }
+        }.toMap()
+    }
+    if (dirToAuthor.isEmpty()) {
+        return
+    }
+    applyAuthors(newList, dirToAuthor)
     onUpdated()
 }
 

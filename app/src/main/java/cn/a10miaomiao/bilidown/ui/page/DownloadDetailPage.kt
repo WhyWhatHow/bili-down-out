@@ -111,6 +111,8 @@ fun DownloadDetailPagePresenter(
                 item
             }
         }
+        // 补全结果（含负缓存）统一落盘
+        BiliAuthorRepository.persist()
         val items = mutableListOf<DownloadItemInfo>()
         var isCompleted = true
         list.forEach {

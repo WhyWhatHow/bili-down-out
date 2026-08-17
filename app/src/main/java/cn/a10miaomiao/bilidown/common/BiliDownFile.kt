@@ -14,6 +14,7 @@ import cn.a10miaomiao.bilidown.entity.BiliDownloadEntryAndPathInfo
 import cn.a10miaomiao.bilidown.entity.BiliDownloadEntryInfo
 import cn.a10miaomiao.bilidown.shizuku.util.RemoteServiceUtil
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import kotlin.jvm.Throws
 
@@ -27,6 +28,12 @@ class BiliDownFile(
     private val TAG = "BiliDownFile"
     private val externalStorage = Environment.getExternalStorageDirectory()
     private val DIR_DOWNLOAD = "download"
+
+    companion object {
+        /** Shizuku binder 读取超时：大库扫描留足余量，同时避免服务卡死无限转圈 */
+        internal const val SHIZUKU_CALL_TIMEOUT_MS: Long = 60_000L
+    }
+
     var path = ""
     var list = emptyList<String>()
 
@@ -46,7 +53,11 @@ class BiliDownFile(
         if (enabledShizuku) {
             MiaoLog.debug { downloadDir.path }
             val userService = RemoteServiceUtil.getUserService()
-            list.addAll(userService.readDownloadList(downloadDir.path))
+            // binder 调用不响应协程取消，服务进程卡死时会无限阻塞：
+            // 整体包一层超时，超时抛 TimeoutCancellationException 由页面提示用户
+            list.addAll(withTimeout(SHIZUKU_CALL_TIMEOUT_MS) {
+                userService.readDownloadList(downloadDir.path)
+            })
         } else {
             downloadDir.listFiles()
                 .filter { it.isDirectory }
@@ -61,7 +72,9 @@ class BiliDownFile(
     suspend fun readDownloadDirectory(dir: MiaoFile): List<BiliDownloadEntryAndPathInfo> {
         if (enabledShizuku) {
             val userService = RemoteServiceUtil.getUserService()
-            return userService.readDownloadDirectory(dir.path)
+            return withTimeout(SHIZUKU_CALL_TIMEOUT_MS) {
+                userService.readDownloadDirectory(dir.path)
+            }
         }
         if (!dir.exists() || !dir.isDirectory) {
             return emptyList()

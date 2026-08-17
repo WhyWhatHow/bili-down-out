@@ -26,6 +26,10 @@ import java.util.concurrent.TimeUnit
  *
  * 三级缓存：内存 -> 磁盘(JSON 文件) -> 网络（带一次重试），
  * 保证已识别过的 UP 主在离线/重启后依然能立即显示。
+ *
+ * 另有**负缓存**：会员/付费等视频 view API 永远返回错误码，
+ * 对这类 key 记录失败时间戳，有效期内（24h）不再重复请求，
+ * 避免每次刷新都白跑网络把并发预算和超时吃光。
  */
 object BiliAuthorRepository {
 
@@ -35,8 +39,18 @@ object BiliAuthorRepository {
         val face: String? = null,
     )
 
+    /** 磁盘缓存文件结构：UP主映射 + 负缓存（失败时间戳） */
+    @Serializable
+    data class CacheData(
+        val authors: Map<String, Author> = emptyMap(),
+        val failed: Map<String, Long> = emptyMap(),
+    )
+
     private const val VIEW_API = "https://api.bilibili.com/x/web-interface/view"
     private const val CACHE_FILE = "bili_author_cache.json"
+
+    /** 负缓存有效期：失败后该时长内不再请求同一视频 */
+    internal const val NEGATIVE_CACHE_TTL_MS: Long = 24L * 60 * 60 * 1000
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -50,34 +64,77 @@ object BiliAuthorRepository {
     // 内存缓存：key -> UP主信息，避免重复请求
     private val cache = ConcurrentHashMap<String, Author>()
 
+    // 负缓存：key -> 上次失败时间戳（Unix 毫秒）
+    private val negativeCache = ConcurrentHashMap<String, Long>()
+
     private var cacheFile: File? = null
 
     /** 在 Application.onCreate 中调用，加载磁盘缓存 */
     fun init(context: Context) {
-        val file = File(context.filesDir, CACHE_FILE)
+        init(File(context.filesDir, CACHE_FILE))
+    }
+
+    /** 以指定文件初始化（加载磁盘缓存），便于单元测试注入临时文件 */
+    fun init(file: File) {
         cacheFile = file
+        cache.clear()
+        negativeCache.clear()
         try {
             if (file.exists()) {
-                val serializer = MapSerializer(String.serializer(), Author.serializer())
-                val map = json.decodeFromString(serializer, file.readText())
-                map.forEach { (k, v) -> cache[k] = v }
+                val root = json.parseToJsonElement(file.readText()).jsonObject
+                if (root.containsKey("authors")) {
+                    // 新格式：含负缓存
+                    val data = json.decodeFromJsonElement(CacheData.serializer(), root)
+                    cache.putAll(data.authors)
+                    negativeCache.putAll(data.failed)
+                } else {
+                    // 旧格式兼容：纯 Map<String, Author>
+                    val serializer = MapSerializer(String.serializer(), Author.serializer())
+                    cache.putAll(json.decodeFromJsonElement(serializer, root))
+                }
             }
         } catch (e: Exception) {
             // 缓存损坏时静默丢弃，下次成功请求后重建
         }
     }
 
-    /** 增量写回磁盘（仅在有新增条目时调用） */
-    private suspend fun persistCache() {
+    /** 持久化当前缓存到磁盘（原子写：临时文件 + rename） */
+    suspend fun persist() {
         val file = cacheFile ?: return
+        val data = CacheData(cache.toMap(), negativeCache.toMap())
         withContext(Dispatchers.IO) {
-            try {
-                val serializer = MapSerializer(String.serializer(), Author.serializer())
-                file.writeText(json.encodeToString(serializer, cache.toMap()))
-            } catch (e: Exception) {
-                // 写入失败不影响主流程
-            }
+            writeCache(file, data)
         }
+    }
+
+    /** 原子写实现：先写 .tmp 再 rename，防止写一半被杀丢整份缓存 */
+    @Synchronized
+    internal fun writeCache(file: File, data: CacheData) {
+        try {
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(json.encodeToString(CacheData.serializer(), data))
+            if (!tmp.renameTo(file)) {
+                // rename 失败（罕见）退回复制
+                tmp.copyTo(file, overwrite = true)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
+            // 写入失败不影响主流程
+        }
+    }
+
+    /** 负缓存是否仍在有效期 */
+    internal fun isNegativeCacheActive(failedAt: Long, now: Long): Boolean {
+        return now in failedAt until (failedAt + NEGATIVE_CACHE_TTL_MS)
+    }
+
+    /**
+     * 只读查询内存/磁盘已缓存的 UP 主信息，**不发网络请求**。
+     * 供缓存优先路径（UP 主页兜底等）毫秒级补全，避免等待网络超时。
+     */
+    fun peekAuthor(avid: Long? = null, bvid: String? = null): Author? {
+        val key = buildKey(avid, bvid) ?: return null
+        return cache[key]
     }
 
     /**
@@ -135,8 +192,9 @@ object BiliAuthorRepository {
     }
 
     /**
-     * 获取 UP 主信息（内存/磁盘缓存优先，网络失败自动重试一次）。
-     * 任何失败均静默返回 null，不阻塞列表展示。
+     * 获取 UP 主信息（内存缓存优先，网络失败自动重试一次）。
+     * 失败写入负缓存并在有效期内直接跳过。
+     * 注意：结果只进内存，需在批量调用完成后调用 [persist] 落盘。
      */
     suspend fun getAuthor(
         avid: Long? = null,
@@ -144,7 +202,13 @@ object BiliAuthorRepository {
     ): Author? {
         val key = buildKey(avid, bvid) ?: return null
         cache[key]?.let { return it }
-
+        val now = System.currentTimeMillis()
+        negativeCache[key]?.let { failedAt ->
+            if (isNegativeCacheActive(failedAt, now)) {
+                // 有效期内的已知失败（会员视频等），直接跳过
+                return null
+            }
+        }
         var author = withContext(Dispatchers.IO) { requestAuthor(avid, bvid) }
         if (author == null) {
             // 风控偶发失败（-412 等），退避后重试一次
@@ -153,7 +217,10 @@ object BiliAuthorRepository {
         }
         if (author != null) {
             cache[key] = author
-            persistCache()
+            negativeCache.remove(key)
+        } else {
+            // 记录失败时间戳，有效期内不再请求
+            negativeCache[key] = now
         }
         return author
     }

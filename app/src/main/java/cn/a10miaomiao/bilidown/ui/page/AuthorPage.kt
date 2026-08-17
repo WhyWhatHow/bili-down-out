@@ -51,6 +51,8 @@ data class AuthorPageState(
     val list: List<DownloadInfo>,
     val face: String?,
     val loading: Boolean,
+    /** 是否已完成一次成功加载（含结果为空）。防止空结果 + Shizuku 状态变化触发无限重扫 */
+    val loaded: Boolean,
     val failMessage: String,
 )
 
@@ -84,6 +86,7 @@ fun AuthorPagePresenter(
     var list by remember { mutableStateOf(emptyList<DownloadInfo>()) }
     var face by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var loaded by remember { mutableStateOf(false) }
     var failMessage by remember { mutableStateOf("") }
 
     suspend fun getList(
@@ -99,6 +102,7 @@ fun AuthorPagePresenter(
             if (cached != null) {
                 list = cached.filter { it.authorGroupKey() == author }
                 face = list.firstNotNullOfOrNull { it.authorFace }
+                loaded = true
                 return
             }
             // 兜底：进程被杀恢复等场景缓存缺失，才走磁盘读取
@@ -112,14 +116,15 @@ fun AuthorPagePresenter(
             failMessage = ""
             val entryList = biliDownFile.readDownloadList()
             val allList = buildDownloadInfoList(entryList)
-            // 先用已有 author 信息过滤渲染，再异步补全缺失 UP 主后刷新（仅兜底路径）
+            // 兜底路径只查本地磁盘缓存补全 UP 主（毫秒级），
+            // 不等网络：已知缓存的立即显示，查不到的归"未知UP主/番剧·影视"组
+            fillMissingAuthors(entryList, allList, fetchRemote = false) { }
+            // 写回内存缓存：下次进入本页或列表页恢复时直接命中，不再重扫
+            appState.downloadListCache[packageName] = allList.toList()
             fun filterByAuthor() = allList.filter { it.authorGroupKey() == author }
             list = filterByAuthor()
             face = list.firstNotNullOfOrNull { it.authorFace }
-            fillMissingAuthors(entryList, allList) {
-                list = filterByAuthor()
-                face = list.firstNotNullOfOrNull { it.authorFace }
-            }
+            loaded = true
         } catch (e: TimeoutCancellationException) {
             e.printStackTrace()
             failMessage = if (enabledShizuku) {
@@ -197,6 +202,7 @@ fun AuthorPagePresenter(
         list = list,
         face = face,
         loading = loading,
+        loaded = loaded,
         failMessage = failMessage,
     )
 }
@@ -232,7 +238,8 @@ fun AuthorPage(
     val totalSize = state.list.sumOf { it.items.sumOf { item -> item.total_bytes } }
 
     LaunchedEffect(packageName, author, shizukuPermissionState.isEnabled) {
-        if (state.list.isEmpty() && state.failMessage.isBlank()) {
+        // loaded 标记：空结果也算加载完成，避免 Shizuku 状态变化触发无限重扫
+        if (!state.loaded && state.list.isEmpty() && state.failMessage.isBlank()) {
             channel.trySend(
                 AuthorPageAction.GetList(
                     packageName = packageName,

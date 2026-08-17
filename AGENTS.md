@@ -33,7 +33,7 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 
 注意：
 - 无 release 签名（缺 `app/signing.properties` + keystore），一律出 debug 包。
-- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 105 / "1.4.1"）。
+- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 106 / "1.4.2"）。
 - 交付 APK 时复制到仓库根目录并按 `BiliDownOut-<版本>-debug.apk` 命名。
 - Android SDK 位于 `/opt/android-sdk`（local.properties 已配置则无需关心）。
 
@@ -86,13 +86,17 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 - 采用 molecule 模式：`DownloadListPagePresenter(context, actionFlow)` 返回 State，UI 通过 channel 发 Action。
 - 流程：`getList` 先同步读 entry.json 渲染列表（**不能被网络阻塞**），随后 `fillMissingAuthors` 异步补全缺失 UP 主，完成后整体刷新。
 - 新版 B 站客户端 entry.json 无 `owner`，需要调 B 站 API 补全：
-  - key 兜底顺序 `bvid -> ep.bvid -> source.av_id -> avid`（番剧条目常缺顶层 bvid/avid）。
+  - key 兜底顺序 `bvid -> ep.bvid -> source.av_id -> avid`（番剧条目常缺顶层 bvid/avid，老视频无 bvid 走 avid）。
   - 并发 4 路 + 单条目一次重试，避免风控(-412)。
-  - 结果持久化在 `filesDir/bili_author_cache.json`（`BiliAuthorRepository.init()` 在 App 启动时加载），重启/离线也能立即显示。
+  - 结果持久化在 `filesDir/bili_author_cache.json`（`BiliAuthorRepository.init()` 在 App 启动时加载），**原子写**（.tmp + rename，防止写一半被杀丢整份缓存），兼容旧版纯 Map 格式。
+  - **负缓存（勿移除）**：会员/付费视频 view API 永远返回错误码，失败 key 记录时间戳，24h 内直接跳过不再请求；`getAuthor` 只写内存，批量完成后由调用方 `persist()` 统一落盘。
+  - `peekAuthor()` 只读查询不发网络，供缓存优先路径（UP 页兜底）毫秒级补全。
 - **番剧/影视没有 UP 主**：author 为空且 type==BANGUMI 的统一归入 `BANGUMI_GROUP_LABEL`（"番剧·影视"）分组，不再显示"未知UP主"。
 - UP 分组默认收起（`expandedGroups` 状态），点击分组头右侧箭头展开/收起；点击 UP 主信息区（头像+名称）跳转 `AuthorPage`（该 UP 的视频列表，含多选批量导出）。
 - entry -> DownloadInfo 的映射逻辑在 `entity/DownloadInfo.kt` 的 `buildDownloadInfoList()`，列表页与 UP 主页共用，勿在页面里复制粘贴。
-- **列表缓存（勿破坏）**：`AppState.downloadListCache[packageName]` 由列表页加载/刷新时写入（UP 补全完成后也会刷新）。`AuthorPage` 必须缓存优先、磁盘仅兜底——全量遍历 `/Android/data` 在 SAF 下每个文件操作都是一次 IPC，重复执行会导致页面明显卡顿。
+- **列表缓存（勿破坏）**：`AppState.downloadListCache[packageName]` 由列表页加载/刷新时写入（UP 补全完成后也会刷新），UP 页兜底扫描完成后也回写。`AuthorPage` 必须缓存优先、磁盘仅兜底——全量遍历 `/Android/data` 在 SAF 下每个文件操作都是一次 IPC，重复执行会导致页面明显卡顿。兜底路径调 `fillMissingAuthors(fetchRemote = false)` 只查本地缓存，不等网络。
+- **AuthorPage 的 loaded 标记（勿移除）**：空结果也算加载完成，防止"空列表 + Shizuku 状态变化"触发 LaunchedEffect 无限重扫。
+- **Shizuku binder 调用必须包 `withTimeout`**（`BiliDownFile.SHIZUKU_CALL_TIMEOUT_MS`，60s）：binder 不响应协程取消，服务进程卡死会无限阻塞 UI。
 
 ### 2. 导出队列（BiliDownService）
 
