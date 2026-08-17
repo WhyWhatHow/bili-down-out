@@ -293,36 +293,39 @@ internal fun ReconfirmDeleteSourceDialog(
 
 @Composable
 internal fun ReconfirmDeleteSourceBatchDialog(
+    show: Boolean,
     count: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = "确认批量删除原视频？") },
-        text = {
-            Column {
-                Text("将删除 $count 个已导出视频的源缓存。")
-                Text(
-                    color = Color.Red,
-                    text = "删除后不可恢复，不影响已导出的文件。",
-                )
+    if (show) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = "确认批量删除原视频？") },
+            text = {
+                Column {
+                    Text("将删除 $count 个已导出视频的源缓存。")
+                    Text(
+                        color = Color.Red,
+                        text = "删除后不可恢复，不影响已导出的文件。",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onConfirm()
+                    onDismiss()
+                }) {
+                    Text("全部删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onConfirm()
-                onDismiss()
-            }) {
-                Text("全部删除")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
+        )
+    }
 }
 
 @Composable
@@ -381,6 +384,7 @@ fun OutListPage(
     }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
     ReconfirmDeleteSourceBatchDialog(
+        show = showBatchDeleteDialog,
         count = cleanableRecords.size,
         onDismiss = { showBatchDeleteDialog = false },
         onConfirm = {
