@@ -246,7 +246,10 @@ fun AuthorPage(
     LaunchedEffect(packageName, author, shizukuPermissionState.isEnabled) {
         // loaded 标记：空结果也算加载完成，避免 Shizuku 状态变化触发无限重扫
         if (!state.loaded && state.list.isEmpty() && state.failMessage.isBlank()) {
-            channel.trySend(
+            // 用 send 而非 trySend：Channel 默认 RENDEZVOUS（容量 0），
+            // 首次进入时 presenter 的 collectAction 协程可能尚未开始收集，
+            // trySend 会静默丢弃 action，导致页面永远卡在 loading。
+            channel.send(
                 AuthorPageAction.GetList(
                     packageName = packageName,
                     enabledShizuku = shizukuPermissionState.isEnabled,
