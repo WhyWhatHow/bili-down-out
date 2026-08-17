@@ -74,7 +74,7 @@ class DownloadListPageTest {
         val newList = buildDownloadInfoList(entryList)
 
         var updated = false
-        fillMissingAuthors(entryList, newList, fetchRemote = false) { updated = true }
+        fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { updated = true })
 
         assertTrue(updated)
         assertEquals("缓存UP主", newList[0].author)
@@ -95,7 +95,7 @@ class DownloadListPageTest {
         val newList = buildDownloadInfoList(entryList)
 
         var updated = false
-        fillMissingAuthors(entryList, newList, fetchRemote = false) { updated = true }
+        fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { updated = true })
 
         assertFalse(updated)
         assertEquals("", newList[0].author)
@@ -109,8 +109,8 @@ class DownloadListPageTest {
         val newList = buildDownloadInfoList(entryList)
 
         var updated = false
-        fillMissingAuthors(entryList, newList, fetchRemote = false) { updated = true }
-        fillMissingAuthors(entryList, newList, fetchRemote = true) { updated = true }
+        fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { updated = true })
+        fillMissingAuthors(entryList, newList, fetchRemote = true, onUpdated = { updated = true })
 
         assertFalse(updated)
         assertEquals("UP甲", newList[0].author)
@@ -129,7 +129,7 @@ class DownloadListPageTest {
         val newList = buildDownloadInfoList(entryList)
         assertEquals(1, newList.size) // 合并为一个视频
 
-        fillMissingAuthors(entryList, newList, fetchRemote = false) { }
+        fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { })
         assertEquals("多P的UP", newList[0].author)
         assertEquals(2, newList[0].items.count { it.author == "多P的UP" })
     }
