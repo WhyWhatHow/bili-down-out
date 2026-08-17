@@ -396,10 +396,10 @@ fun OutListPage(
         },
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 80.dp),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 8.dp),
         ) {
         if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty() && !selectMode) {
             // 顶部醒目的清理入口：提醒用户部分源视频仍占用缓存，点击进入多选模式自行勾选
@@ -525,10 +525,7 @@ fun OutListPage(
     // 用 if 而非 AnimatedVisibility，避免部分设备上动画首次测量高度为 0 导致浮条空白。
     if (selectMode) {
         Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             tonalElevation = 3.dp,
             shadowElevation = 8.dp,
         ) {
