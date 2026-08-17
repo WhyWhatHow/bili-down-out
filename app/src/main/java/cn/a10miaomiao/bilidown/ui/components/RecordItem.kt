@@ -43,6 +43,8 @@ fun RecordItem(
     onClick: () -> Unit,
     onDeleteClick: (isDeleteFile: Boolean) -> Unit,
     sourceExists: Boolean = false,
+    /** 源文件是否已删除；null 表示不适用（非成功记录），不显示 */
+    sourceDeleted: Boolean? = null,
     onDeleteSourceClick: (() -> Unit)? = null,
     selectMode: Boolean = false,
     selected: Boolean = false,
@@ -116,6 +118,18 @@ fun RecordItem(
                                 },
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            // 源文件状态：已成功导出时才显示"源已删除/仍在占用"
+                            if (sourceDeleted != null) {
+                                Text(
+                                    text = if (sourceDeleted) "源已删除" else "源占用空间",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (sourceDeleted) {
+                                        MaterialTheme.colorScheme.outline
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                )
+                            }
                             Box() {
                                 IconButton(
                                     onClick = { expandedMoreMenu = true }

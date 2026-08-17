@@ -125,7 +125,7 @@ fun DownloadDetailPagePresenter(
             var type = DownloadType.VIDEO
             val page = biliEntry.page_data
             if (page != null) {
-                id = biliEntry.avid!!
+                id = biliEntry.avid ?: id
                 indexTitle = page.download_title ?: page.part ?: "${page.page}P"
                 cid = page.cid
                 type = DownloadType.VIDEO
@@ -134,7 +134,7 @@ fun DownloadDetailPagePresenter(
             val ep = biliEntry.ep
             val source = biliEntry.source
             if (ep != null && source != null) {
-                id = biliEntry.season_id!!.toLong()
+                id = biliEntry.season_id?.toLongOrNull() ?: id
                 indexTitle = ep.index_title
                 epid = ep.episode_id
                 cid = source.cid

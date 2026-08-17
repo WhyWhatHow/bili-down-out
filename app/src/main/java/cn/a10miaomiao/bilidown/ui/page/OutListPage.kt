@@ -474,6 +474,12 @@ fun OutListPage(
                             }
                     }
                 }
+                // 仅成功导出且源状态已被检查时才显示"源已删除/占用空间"
+                val sourceStatus = if (item.status == OutRecord.STATUS_SUCCESS && itemId != null) {
+                    state.sourceExistsMap[itemId]?.let { !it }
+                } else {
+                    null
+                }
                 RecordItem(
                     title = item.title,
                     cover = item.cover,
@@ -494,6 +500,7 @@ fun OutListPage(
                         )
                     },
                     sourceExists = itemId?.let { state.sourceExistsMap[it] } == true,
+                    sourceDeleted = sourceStatus,
                     onDeleteSourceClick = {
                         reconfirmDeleteSourceRecord = item
                     },

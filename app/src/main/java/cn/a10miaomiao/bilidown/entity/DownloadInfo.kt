@@ -141,7 +141,8 @@ fun buildDownloadInfoList(
         var type = DownloadType.VIDEO
         val page = biliEntry.page_data
         if (page != null) {
-            id = biliEntry.avid!!
+            // avid 可能缺失（AGENTS：entry 字段可为 null），缺失时兜底 0
+            id = biliEntry.avid ?: id
             indexTitle = page.download_title ?: page.part ?: "${page.page}P"
             cid = page.cid
             type = DownloadType.VIDEO
@@ -150,7 +151,8 @@ fun buildDownloadInfoList(
         val ep = biliEntry.ep
         val source = biliEntry.source
         if (ep != null && source != null) {
-            id = biliEntry.season_id!!.toLong()
+            // season_id 为 String?，缺失/非数字时兜底 0，避免 NumberFormat 崩溃
+            id = biliEntry.season_id?.toLongOrNull() ?: id
             indexTitle = ep.index_title
             epid = ep.episode_id
             cid = source.cid

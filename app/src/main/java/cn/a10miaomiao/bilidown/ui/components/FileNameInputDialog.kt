@@ -42,12 +42,12 @@ fun FileNameInputDialog(
     }
 
     fun handleConfirm() {
-        val name = value.text + ".mp4"
-        if (name.isBlank()) {
+        // 统一清洗：去空格 + 去除文件系统非法字符（\/:*?"<>|）
+        val cleaned = BiliDownOutFile.sanitizeFileName(value.text)
+        if (cleaned.isBlank()) {
             errorText = "文件名不能为空"
-        } else if (name.indexOf(' ') > 0) {
-            errorText = "文件名不能含有格"
         } else {
+            val name = cleaned + ".mp4"
             val outFile = BiliDownOutFile(name, author)
             if (outFile.exists()) {
                 errorText = "文件已存在"
