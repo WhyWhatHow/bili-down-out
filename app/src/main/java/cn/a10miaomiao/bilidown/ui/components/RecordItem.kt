@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -43,6 +44,9 @@ fun RecordItem(
     onDeleteClick: (isDeleteFile: Boolean) -> Unit,
     sourceExists: Boolean = false,
     onDeleteSourceClick: (() -> Unit)? = null,
+    selectMode: Boolean = false,
+    selected: Boolean = false,
+    onSelectChange: (() -> Unit)? = null,
 ) {
     var expandedMoreMenu by remember { mutableStateOf(false) }
 
@@ -62,6 +66,13 @@ fun RecordItem(
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (selectMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onSelectChange?.invoke() },
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                    }
                     AsyncImage(
                         model = UrlUtil.autoHttps(cover) + "@672w_378h_1c_",
                         contentDescription = title,
