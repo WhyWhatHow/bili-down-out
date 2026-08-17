@@ -10,13 +10,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,6 +76,11 @@ sealed class OutListPageAction {
     /** 删除该记录对应的哔哩哔哩缓存源目录（不影响已导出文件与记录本身） */
     class DeleteSourceVideo(
         val record: OutRecord,
+    ): OutListPageAction()
+
+    /** 批量删除多条记录对应的源缓存目录 */
+    class DeleteSourceVideoBatch(
+        val records: List<OutRecord>,
     ): OutListPageAction()
 }
 
@@ -156,6 +165,30 @@ fun OutListPagePresenter(
                     null -> "已删除原视频：${it.record.title}"
                     BiliDownService.SOURCE_NOT_FOUND -> "原视频已不存在：${it.record.title}"
                     else -> "删除原视频失败：${it.record.title}"
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                getRecordList(biliDownService)
+            }
+            is OutListPageAction.DeleteSourceVideoBatch -> {
+                val biliDownService = BiliDownService.getService(context)
+                var deleted = 0
+                var notFound = 0
+                var failed = 0
+                withContext(Dispatchers.IO) {
+                    it.records.forEach { record ->
+                        when (biliDownService.deleteSourceVideo(record.entryDirPath)) {
+                            null -> deleted++
+                            BiliDownService.SOURCE_NOT_FOUND -> notFound++
+                            else -> failed++
+                        }
+                    }
+                }
+                val message = buildString {
+                    append("已删除原视频 $deleted 个")
+                    if (notFound > 0) append("，$notFound 个已不存在")
+                    if (failed > 0) append("，$failed 个删除失败")
                 }
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -259,6 +292,40 @@ internal fun ReconfirmDeleteSourceDialog(
 }
 
 @Composable
+internal fun ReconfirmDeleteSourceBatchDialog(
+    count: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "确认批量删除原视频？") },
+        text = {
+            Column {
+                Text("将删除 $count 个已导出视频的源缓存。")
+                Text(
+                    color = Color.Red,
+                    text = "删除后不可恢复，不影响已导出的文件。",
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onConfirm()
+                onDismiss()
+            }) {
+                Text("全部删除")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
 fun OutListPage(
     navController: NavHostController,
 ) {
@@ -306,9 +373,64 @@ fun OutListPage(
         },
     )
 
+    // 源缓存仍存在的成功记录，可批量清理
+    val cleanableRecords = state.recordList.filter { record ->
+        record.status == OutRecord.STATUS_SUCCESS
+                && record.id != null
+                && state.sourceExistsMap[record.id] == true
+    }
+    var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    ReconfirmDeleteSourceBatchDialog(
+        count = cleanableRecords.size,
+        onDismiss = { showBatchDeleteDialog = false },
+        onConfirm = {
+            if (cleanableRecords.isNotEmpty()) {
+                channel.trySend(OutListPageAction.DeleteSourceVideoBatch(cleanableRecords))
+            }
+        },
+    )
+
     LazyColumn(
         contentPadding = PaddingValues(bottom = 80.dp),
     ) {
+        if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty()) {
+            // 顶部醒目的批量清理入口：提醒用户部分源视频仍占用缓存
+            item(key = "cleanup_hint") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "有 ${cleanableRecords.size} 个已导出视频的源缓存仍占用空间",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                text = "可一键删除源视频以释放空间（不影响已导出文件）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                        TextButton(onClick = { showBatchDeleteDialog = true }) {
+                            Text(
+                                text = "清理",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         if (state.recordList.isEmpty()) {
             item {
                 Column(
