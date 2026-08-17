@@ -104,6 +104,10 @@ fun OutListPagePresenter(
     suspend fun getRecordList(
         biliDownService: BiliDownService
     ) {
+        // 先扫描导出目录，把文件存在但无记录的 .mp4 补回数据库（校正记录）
+        withContext(Dispatchers.IO) {
+            biliDownService.reconcileExportedFiles()
+        }
         recordList = biliDownService.getRecordList(OutRecord.STATUS_SUCCESS)
         withContext(Dispatchers.IO) {
             recordList = recordList.map { record ->
@@ -117,8 +121,10 @@ fun OutListPagePresenter(
                 }
             }
             // 预检查成功记录的源缓存是否仍存在，决定是否显示"删除原视频"菜单项
+            // entryDirPath 为空（校正补回的记录）不参与检查，视为源未知
             sourceExistsMap = recordList.mapNotNull { record ->
                 val id = record.id ?: return@mapNotNull null
+                if (record.entryDirPath.isBlank()) return@mapNotNull null
                 id to biliDownService.sourceVideoExists(record.entryDirPath)
             }.toMap()
         }
@@ -514,8 +520,10 @@ fun OutListPage(
                             }
                     }
                 }
+                // 校正补回的记录（entryDirPath 为空）显示"源未知"，不参与源缓存检查
+                val isReconciled = item.entryDirPath.isBlank()
                 // 仅成功导出且源状态已被检查时才显示"源已删除/占用空间"
-                val sourceStatus = if (item.status == OutRecord.STATUS_SUCCESS && itemId != null) {
+                val sourceStatus = if (item.status == OutRecord.STATUS_SUCCESS && itemId != null && !isReconciled) {
                     state.sourceExistsMap[itemId]?.let { !it }
                 } else {
                     null
@@ -541,8 +549,11 @@ fun OutListPage(
                     },
                     sourceExists = itemId?.let { state.sourceExistsMap[it] } == true,
                     sourceDeleted = sourceStatus,
-                    onDeleteSourceClick = {
-                        reconfirmDeleteSourceRecord = item
+                    sourceUnknown = isReconciled && item.status == OutRecord.STATUS_SUCCESS,
+                    onDeleteSourceClick = if (!isReconciled) {
+                        { reconfirmDeleteSourceRecord = item }
+                    } else {
+                        null
                     },
                     selectMode = selectMode,
                     selected = itemId != null && itemId in selectedIds.value,
