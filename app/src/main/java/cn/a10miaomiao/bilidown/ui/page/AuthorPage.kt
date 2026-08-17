@@ -118,8 +118,9 @@ fun AuthorPagePresenter(
             // 兜底路径只查本地磁盘缓存补全 UP 主（毫秒级），
             // 不等网络：已知缓存的立即显示，查不到的归"未知UP主/番剧·影视"组
             fillMissingAuthors(entryList, allList, fetchRemote = false) { }
-            // 写回内存缓存：下次进入本页或列表页恢复时直接命中，不再重扫
+            // 写回内存缓存并落盘：下次进入本页或列表页恢复时直接命中，不再重扫
             appState.downloadListCache[packageName] = allList.toList()
+            appState.saveListCache()
             fun filterByAuthor() = allList.filter { it.authorGroupKey() == author }
             list = filterByAuthor()
             face = list.firstNotNullOfOrNull { it.authorFace }

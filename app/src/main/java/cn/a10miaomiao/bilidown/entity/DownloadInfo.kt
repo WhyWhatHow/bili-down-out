@@ -1,9 +1,12 @@
 package cn.a10miaomiao.bilidown.entity
 
+import kotlinx.serialization.Serializable
+
 enum class DownloadType {
     VIDEO,
     BANGUMI
 }
+@Serializable
 data class DownloadInfo(
     val dir_path: String,
     val media_type: Int,
@@ -22,6 +25,7 @@ data class DownloadInfo(
 //    val owner_id: Long,
 )
 
+@Serializable
 data class DownloadItemInfo(
     val dir_path: String,
     val media_type: Int,

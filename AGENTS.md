@@ -33,7 +33,7 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 
 注意：
 - 无 release 签名（缺 `app/signing.properties` + keystore），一律出 debug 包。
-- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 107 / "1.4.3"）。
+- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 108 / "1.4.4"）。
 - 交付 APK 时复制到仓库根目录并按 `BiliDownOut-<版本>-debug.apk` 命名。
 - Android SDK 位于 `/opt/android-sdk`（local.properties 已配置则无需关心）。
 
@@ -94,7 +94,7 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 - **番剧/影视没有 UP 主**：author 为空且 type==BANGUMI 的统一归入 `BANGUMI_GROUP_LABEL`（"番剧·影视"）分组，不再显示"未知UP主"。
 - UP 分组默认收起（`expandedGroups` 状态），点击分组头右侧箭头展开/收起；点击 UP 主信息区（头像+名称）跳转 `AuthorPage`（该 UP 的视频列表，含多选批量导出）。
 - entry -> DownloadInfo 的映射逻辑在 `entity/DownloadInfo.kt` 的 `buildDownloadInfoList()`，列表页与 UP 主页共用，勿在页面里复制粘贴。
-- **列表缓存（勿破坏）**：`AppState.downloadListCache[packageName]` 由列表页加载/刷新时写入（UP 补全完成后也会刷新），UP 页兜底扫描完成后也回写。`AuthorPage` 必须缓存优先、磁盘仅兜底——全量遍历 `/Android/data` 在 SAF 下每个文件操作都是一次 IPC，重复执行会导致页面明显卡顿。兜底路径调 `fillMissingAuthors(fetchRemote = false)` 只查本地缓存，不等网络。
+- **列表缓存（勿破坏）**：`AppState.downloadListCache[packageName]` 由列表页加载/刷新时写入并**持久化到磁盘**（`filesDir/bili_list_cache.json`，原子写），UP 页兜底扫描完成后也回写。`AuthorPage` 必须缓存优先、磁盘仅兜底——全量遍历 `/Android/data` 在 SAF 下每个文件操作都是一次 IPC，重复执行会导致页面明显卡顿。兜底路径调 `fillMissingAuthors(fetchRemote = false)` 只查本地缓存，不等网络。**持久化的意义**：进程被杀恢复时 UP 页先于列表页组合，内存缓存为空，需靠磁盘缓存秒开，否则落回全量扫描转圈。列表数据增删后依赖列表页刷新校正（可能短暂显示陈旧快照）。
 - **AuthorPage 的 loaded 标记（勿移除）**：空结果也算加载完成，防止"空列表 + Shizuku 状态变化"触发 LaunchedEffect 无限重扫。
 - **Shizuku binder 调用必须包 `withTimeout`**（`BiliDownFile.SHIZUKU_CALL_TIMEOUT_MS`，60s）：binder 不响应协程取消，服务进程卡死会无限阻塞 UI。
 

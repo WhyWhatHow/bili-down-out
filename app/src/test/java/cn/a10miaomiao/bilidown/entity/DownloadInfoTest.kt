@@ -2,6 +2,7 @@ package cn.a10miaomiao.bilidown.entity
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlinx.serialization.json.Json
 
 class DownloadInfoTest {
 
@@ -134,6 +135,60 @@ class DownloadInfoTest {
         assertEquals("1.0 KB", formatFileSize(1024))
         assertEquals("1.5 MB", formatFileSize((1.5 * 1024 * 1024).toLong()))
         assertEquals("1.00 GB", formatFileSize(1024L * 1024 * 1024))
+    }
+
+    @Test
+    fun `DownloadInfo json serialize round-trip preserves fields`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val original = DownloadInfo(
+            dir_path = "/data/dir",
+            media_type = 2,
+            has_dash_audio = true,
+            is_completed = false,
+            total_bytes = 12345,
+            downloaded_bytes = 6789,
+            title = "视频标题",
+            cover = "http://cover.jpg",
+            id = 100L,
+            cid = 200L,
+            type = DownloadType.BANGUMI,
+            author = "UP主",
+            authorFace = "http://face.jpg",
+            items = mutableListOf(
+                DownloadItemInfo(
+                    dir_path = "/data/dir/e1",
+                    media_type = 2,
+                    has_dash_audio = true,
+                    is_completed = true,
+                    total_bytes = 12345,
+                    downloaded_bytes = 6789,
+                    title = "分P标题",
+                    cover = "http://cover.jpg",
+                    id = 100L,
+                    type = DownloadType.BANGUMI,
+                    index_title = "第1话",
+                    cid = 200L,
+                    epid = 300L,
+                    author = "UP主",
+                )
+            ),
+        )
+
+        val decoded = json.decodeFromString(
+            DownloadInfo.serializer(),
+            json.encodeToString(DownloadInfo.serializer(), original),
+        )
+
+        assertEquals(original.dir_path, decoded.dir_path)
+        assertEquals(original.title, decoded.title)
+        assertEquals(original.author, decoded.author)
+        assertEquals(original.authorFace, decoded.authorFace)
+        assertEquals(original.type, decoded.type)
+        assertEquals(false, decoded.is_completed)
+        assertEquals(original.items.size, decoded.items.size)
+        assertEquals("第1话", decoded.items[0].index_title)
+        assertEquals(300L, decoded.items[0].epid)
+        assertEquals(12345L, decoded.total_bytes)
     }
 
     private fun entry(

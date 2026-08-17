@@ -280,13 +280,15 @@ fun DownloadListPagePresenter(
             // 否则下拉刷新会用空白 author 覆盖已补全的名字，网络失败时"越刷越退"
             fillMissingAuthors(entryList, newList, fetchRemote = false) { }
             list = newList.toList()
-            // 写入进程内缓存，UP 主页直接复用，免去重复全量遍历目录
+            // 写入进程内缓存并落盘，UP 主页直接复用，免去重复全量遍历目录
             val appState = (context.applicationContext as BiliDownApp).state
             appState.downloadListCache[packageName] = list
+            appState.saveListCache()
             // 再异步网络补全剩余缺失的 UP 主，避免网络请求阻塞列表展示
             fillMissingAuthors(entryList, newList) {
                 list = newList.toList()
                 appState.downloadListCache[packageName] = list
+                appState.saveListCache()
             }
         } catch (e: TimeoutCancellationException) {
             e.printStackTrace()
