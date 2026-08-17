@@ -128,6 +128,30 @@ class BiliAuthorRepositoryTest {
     }
 
     @Test
+    fun `shouldNegativeCache only for api business errors`() {
+        // -412 是临时风控，不记（否则一次风控让刷新 24h 内都查不到）
+        assertFalse(BiliAuthorRepository.shouldNegativeCache(-412, networkError = false))
+        // 网络异常/无 code 属暂态，不记
+        assertFalse(BiliAuthorRepository.shouldNegativeCache(null, networkError = true))
+        assertFalse(BiliAuthorRepository.shouldNegativeCache(null, networkError = false))
+        // 业务错误码（会员视频 -403/-404 等）重试无意义，记 24h
+        assertTrue(BiliAuthorRepository.shouldNegativeCache(-403, networkError = false))
+        assertTrue(BiliAuthorRepository.shouldNegativeCache(-404, networkError = false))
+        // 成功不记
+        assertFalse(BiliAuthorRepository.shouldNegativeCache(0, networkError = false))
+    }
+
+    @Test
+    fun `parseResponseCode extracts code from response`() {
+        assertEquals(0, BiliAuthorRepository.parseResponseCode("""{"code":0,"data":{}}"""))
+        assertEquals(-412, BiliAuthorRepository.parseResponseCode("""{"code":-412}"""))
+        assertEquals(-404, BiliAuthorRepository.parseResponseCode("""{"code":-404,"message":"x"}"""))
+        assertNull(BiliAuthorRepository.parseResponseCode("not json"))
+        assertNull(BiliAuthorRepository.parseResponseCode(""))
+        assertNull(BiliAuthorRepository.parseResponseCode("""{"message":"no code"}"""))
+    }
+
+    @Test
     fun `writeCache writes atomically and init reads back new format`() {
         val file = tmpFolder.newFile("cache.json")
         val data = BiliAuthorRepository.CacheData(

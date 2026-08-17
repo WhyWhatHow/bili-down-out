@@ -41,6 +41,8 @@ fun RecordItem(
     status: Int,
     onClick: () -> Unit,
     onDeleteClick: (isDeleteFile: Boolean) -> Unit,
+    sourceExists: Boolean = false,
+    onDeleteSourceClick: (() -> Unit)? = null,
 ) {
     var expandedMoreMenu by remember { mutableStateOf(false) }
 
@@ -109,22 +111,29 @@ fun RecordItem(
                                 ) {
                                     Icon(Icons.Filled.MoreVert, null)
                                 }
-                                val menus = remember<List<String>>(status) {
-                                    if (status == OutRecord.STATUS_SUCCESS) {
-                                        listOf("删除记录", "删除记录及文件")
-                                    } else {
-                                        listOf("移除任务")
+                                val menus = remember(status, sourceExists) {
+                                    buildList {
+                                        if (status == OutRecord.STATUS_SUCCESS) {
+                                            add("删除记录" to { onDeleteClick(false) })
+                                            add("删除记录及文件" to { onDeleteClick(true) })
+                                            // 源缓存仍存在时才提供"删除原视频"
+                                            if (sourceExists && onDeleteSourceClick != null) {
+                                                add("删除原视频" to onDeleteSourceClick)
+                                            }
+                                        } else {
+                                            add("移除任务" to { onDeleteClick(false) })
+                                        }
                                     }
                                 }
                                 DropdownMenu(
                                     expanded = expandedMoreMenu,
                                     onDismissRequest = { expandedMoreMenu = false },
                                 ) {
-                                    menus.forEachIndexed { index, text ->
+                                    menus.forEach { (text, action) ->
                                         DropdownMenuItem(
                                             onClick = {
                                                 expandedMoreMenu = false
-                                                onDeleteClick(index == 1)
+                                                action()
                                             },
                                             text = {
                                                 Text(text = text)

@@ -128,6 +128,34 @@ object BiliAuthorRepository {
         return now in failedAt until (failedAt + NEGATIVE_CACHE_TTL_MS)
     }
 
+    /** 网络请求结果：author 非空即成功；apiCode 为 B 站业务码；networkError 为网络层异常 */
+    internal data class RequestResult(
+        val author: Author? = null,
+        val apiCode: Int? = null,
+        val networkError: Boolean = false,
+    )
+
+    /**
+     * 失败是否记入长负缓存：只有 B 站 API 明确返回业务错误码（-404 不存在、
+     * -403 无权限等，重试也不会成功）才记 24h；-412 属临时风控、网络异常属
+     * 暂态故障，重试可能恢复，不记——否则一次风控会让刷新 24h 内都"查不到"。
+     */
+    internal fun shouldNegativeCache(apiCode: Int?, networkError: Boolean): Boolean {
+        if (networkError) return false
+        if (apiCode == null) return false
+        return apiCode != 0 && apiCode != -412
+    }
+
+    /** 从响应体提取 B 站业务码，异常结构返回 null */
+    fun parseResponseCode(responseBody: String): Int? {
+        return try {
+            json.parseToJsonElement(responseBody).jsonObject["code"]
+                ?.jsonPrimitive?.intOrNull
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /**
      * 只读查询内存/磁盘已缓存的 UP 主信息，**不发网络请求**。
      * 供缓存优先路径（UP 主页兜底等）毫秒级补全，避免等待网络超时。
@@ -171,7 +199,7 @@ object BiliAuthorRepository {
         }
     }
 
-    private fun requestAuthor(avid: Long?, bvid: String?): Author? {
+    private fun requestAuthor(avid: Long?, bvid: String?): RequestResult {
         val url = if (!bvid.isNullOrBlank()) {
             "$VIEW_API?bvid=$bvid"
         } else {
@@ -183,17 +211,22 @@ object BiliAuthorRepository {
             .build()
         return try {
             client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return@use null
-                parseAuthor(body)
+                val body = response.body?.string()
+                    ?: return@use RequestResult(networkError = true)
+                RequestResult(
+                    author = parseAuthor(body),
+                    apiCode = parseResponseCode(body),
+                )
             }
         } catch (e: Exception) {
-            null
+            RequestResult(networkError = true)
         }
     }
 
     /**
      * 获取 UP 主信息（内存缓存优先，网络失败自动重试一次）。
-     * 失败写入负缓存并在有效期内直接跳过。
+     * 仅业务错误码（如会员视频 -403/-404）记入负缓存并在有效期内跳过；
+     * -412 风控与网络异常属暂态失败，不记，下次刷新照常重试。
      * 注意：结果只进内存，需在批量调用完成后调用 [persist] 落盘。
      */
     suspend fun getAuthor(
@@ -205,23 +238,25 @@ object BiliAuthorRepository {
         val now = System.currentTimeMillis()
         negativeCache[key]?.let { failedAt ->
             if (isNegativeCacheActive(failedAt, now)) {
-                // 有效期内的已知失败（会员视频等），直接跳过
+                // 有效期内的已知业务失败（会员视频等），直接跳过
                 return null
             }
         }
-        var author = withContext(Dispatchers.IO) { requestAuthor(avid, bvid) }
-        if (author == null) {
-            // 风控偶发失败（-412 等），退避后重试一次
+        var result = withContext(Dispatchers.IO) { requestAuthor(avid, bvid) }
+        if (result.author == null) {
+            // 偶发失败（风控/网络抖动），退避后重试一次
             delay(300)
-            author = withContext(Dispatchers.IO) { requestAuthor(avid, bvid) }
+            result = withContext(Dispatchers.IO) { requestAuthor(avid, bvid) }
         }
-        if (author != null) {
+        result.author?.let { author ->
             cache[key] = author
             negativeCache.remove(key)
-        } else {
-            // 记录失败时间戳，有效期内不再请求
-            negativeCache[key] = now
+        } ?: run {
+            if (shouldNegativeCache(result.apiCode, result.networkError)) {
+                // 记录业务失败时间戳，有效期内不再请求
+                negativeCache[key] = now
+            }
         }
-        return author
+        return result.author
     }
 }

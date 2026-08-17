@@ -70,7 +70,6 @@ import cn.a10miaomiao.bilidown.service.BiliDownService
 import cn.a10miaomiao.bilidown.shizuku.localShizukuPermission
 import coil.compose.AsyncImage
 import cn.a10miaomiao.bilidown.ui.BiliDownScreen
-import cn.a10miaomiao.bilidown.ui.components.BatchExportDialog
 import cn.a10miaomiao.bilidown.ui.components.DownloadListItem
 import cn.a10miaomiao.bilidown.ui.components.PermissionDialog
 import cn.a10miaomiao.bilidown.ui.components.SwipeToRefresh
@@ -277,11 +276,14 @@ fun DownloadListPagePresenter(
             val entryList = biliDownFile.readDownloadList()
             // entry -> DownloadInfo 的映射逻辑与 UP 主详情页共用
             val newList = buildDownloadInfoList(entryList)
+            // 渲染前先用本地缓存同步补全已知 UP 主（毫秒级，不发网络）：
+            // 否则下拉刷新会用空白 author 覆盖已补全的名字，网络失败时"越刷越退"
+            fillMissingAuthors(entryList, newList, fetchRemote = false) { }
             list = newList.toList()
             // 写入进程内缓存，UP 主页直接复用，免去重复全量遍历目录
             val appState = (context.applicationContext as BiliDownApp).state
             appState.downloadListCache[packageName] = list
-            // 先渲染列表，再异步补全缺失的 UP 主名称，避免网络请求阻塞列表展示
+            // 再异步网络补全剩余缺失的 UP 主，避免网络请求阻塞列表展示
             fillMissingAuthors(entryList, newList) {
                 list = newList.toList()
                 appState.downloadListCache[packageName] = list
@@ -396,7 +398,6 @@ fun DownloadListPage(
 
     var selectMode by remember { mutableStateOf(false) }
     val selectedKeys = remember { mutableStateOf(setOf<String>()) }
-    var showBatchExportDialog by remember { mutableStateOf(false) }
     val deleteSourceEnabled by rememberDataStorePreferencesFlow(
         context = context,
         key = DataStoreKeys.exportDeleteSource,
@@ -476,23 +477,6 @@ fun DownloadListPage(
         isGranted = permissionState.isGranted,
         onDismiss = { showPermissionDialog = false }
     )
-
-    if (showBatchExportDialog) {
-        BatchExportDialog(
-            videoCount = selectedVideos.size,
-            partCount = selectedItems.size,
-            deleteSourceEnabled = deleteSourceEnabled,
-            onDismiss = { showBatchExportDialog = false },
-            onConfirm = {
-                showBatchExportDialog = false
-                channel.trySend(
-                    DownloadListPageAction.ExportBatch(selectedItems, deleteSourceEnabled)
-                )
-                selectMode = false
-                selectedKeys.value = emptySet()
-            },
-        )
-    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -818,7 +802,14 @@ fun DownloadListPage(
                     }
                     TextButton(
                         enabled = selectedItems.isNotEmpty(),
-                        onClick = { showBatchExportDialog = true },
+                        onClick = {
+                            // 直接按全局设置导出，不再弹确认框（删除源文件仅在导出成功后执行）
+                            channel.trySend(
+                                DownloadListPageAction.ExportBatch(selectedItems, deleteSourceEnabled)
+                            )
+                            selectMode = false
+                            selectedKeys.value = emptySet()
+                        },
                     ) {
                         Text("导出选中")
                     }

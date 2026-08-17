@@ -41,6 +41,8 @@ class BiliDownService :
 
     companion object {
         private const val TAG = "DownloadService"
+        /** deleteSourceVideo 返回值：源缓存目录已不存在 */
+        const val SOURCE_NOT_FOUND = "source_not_found"
         private val channel = Channel<BiliDownService>()
         private var _instance: BiliDownService? = null
 
@@ -606,33 +608,60 @@ class BiliDownService :
         }
     }
 
-    private suspend fun deleteSourceDir(entryDirPath: String) {
-        try {
+    /**
+     * 删除哔哩哔哩缓存源目录（三通道：Shizuku / SAF content / Java File）。
+     * @return null=删除成功；[SOURCE_NOT_FOUND]=源已不存在；其他字符串=失败原因
+     */
+    suspend fun deleteSourceVideo(entryDirPath: String): String? {
+        return try {
             if (appState.shizukuState.value.isEnabled) {
-                val error = RemoteServiceUtil.getUserService().deleteBiliVideo(entryDirPath)
-                if (error != null) {
-                    toast("删除源文件失败：$error")
-                } else {
-                    MiaoLog.debug { "已删除源文件：$entryDirPath" }
+                when (val error = RemoteServiceUtil.getUserService().deleteBiliVideo(entryDirPath)) {
+                    null -> null
+                    "源文件不存在" -> SOURCE_NOT_FOUND
+                    else -> error
                 }
             } else if (entryDirPath.startsWith("content:")) {
                 val uri = Uri.parse(entryDirPath)
                 if (DocumentsContract.deleteDocument(contentResolver, uri)) {
-                    MiaoLog.debug { "已删除源文件：$entryDirPath" }
+                    null
                 } else {
-                    toast("删除源文件失败：$entryDirPath")
+                    "删除失败：$entryDirPath"
                 }
             } else {
                 val dir = File(entryDirPath)
-                if (dir.exists() && dir.deleteRecursively()) {
-                    MiaoLog.debug { "已删除源文件：$entryDirPath" }
-                } else if (dir.exists()) {
-                    toast("删除源文件失败：$entryDirPath")
+                when {
+                    !dir.exists() -> SOURCE_NOT_FOUND
+                    dir.deleteRecursively() -> null
+                    else -> "删除失败：$entryDirPath"
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            toast("删除源文件失败：${e.message}")
+            "删除失败：${e.message}"
+        }
+    }
+
+    /** 检查哔哩哔哩缓存源目录是否仍存在（三通道）。检查异常时保守返回 true，交由删除动作给出准确反馈 */
+    suspend fun sourceVideoExists(entryDirPath: String): Boolean {
+        return try {
+            when {
+                appState.shizukuState.value.isEnabled ->
+                    RemoteServiceUtil.getUserService().fileExists(entryDirPath)
+                entryDirPath.startsWith("content:") ->
+                    DocumentFile.fromSingleUri(this, Uri.parse(entryDirPath))?.exists() == true
+                else -> File(entryDirPath).exists()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            true
+        }
+    }
+
+    private suspend fun deleteSourceDir(entryDirPath: String) {
+        when (val error = deleteSourceVideo(entryDirPath)) {
+            null -> MiaoLog.debug { "已删除源文件：$entryDirPath" }
+            SOURCE_NOT_FOUND -> Unit // 源已不在，静默处理
+            else -> toast("删除源文件失败：$error")
         }
     }
 

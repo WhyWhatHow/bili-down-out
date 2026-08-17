@@ -216,6 +216,14 @@ class UserService: IUserService.Stub, CoroutineScope {
         }
     }
 
+    @Throws(RemoteException::class)
+    override fun fileExists(path: String?): Boolean {
+        if (path.isNullOrBlank()) {
+            return false
+        }
+        return File(path).exists()
+    }
+
     private suspend fun copyFile(
         inputFile: File,
         outFile: File

@@ -52,6 +52,8 @@ import java.io.File
 data class OutListPageState(
     val status: TaskStatus,
     val recordList: List<OutRecord>,
+    /** 成功记录的源缓存目录是否仍存在（record.id -> exists），决定是否显示"删除原视频" */
+    val sourceExistsMap: Map<Long, Boolean> = emptyMap(),
 )
 
 
@@ -65,6 +67,11 @@ sealed class OutListPageAction {
     class DeleteRecord(
         val record: OutRecord,
         val isDeleteFile: Boolean,
+    ): OutListPageAction()
+
+    /** 删除该记录对应的哔哩哔哩缓存源目录（不影响已导出文件与记录本身） */
+    class DeleteSourceVideo(
+        val record: OutRecord,
     ): OutListPageAction()
 }
 
@@ -80,6 +87,9 @@ fun OutListPagePresenter(
 
     var recordList by remember {
         mutableStateOf(emptyList<OutRecord>())
+    }
+    var sourceExistsMap by remember {
+        mutableStateOf(emptyMap<Long, Boolean>())
     }
 
     suspend fun getRecordList(
@@ -97,6 +107,11 @@ fun OutListPagePresenter(
                     record
                 }
             }
+            // 预检查成功记录的源缓存是否仍存在，决定是否显示"删除原视频"菜单项
+            sourceExistsMap = recordList.mapNotNull { record ->
+                val id = record.id ?: return@mapNotNull null
+                id to biliDownService.sourceVideoExists(record.entryDirPath)
+            }.toMap()
         }
     }
 
@@ -135,12 +150,25 @@ fun OutListPagePresenter(
                 biliDownService.delTask(it.record, it.isDeleteFile)
                 getRecordList(biliDownService)
             }
+            is OutListPageAction.DeleteSourceVideo -> {
+                val biliDownService = BiliDownService.getService(context)
+                val message = when (biliDownService.deleteSourceVideo(it.record.entryDirPath)) {
+                    null -> "已删除原视频：${it.record.title}"
+                    BiliDownService.SOURCE_NOT_FOUND -> "原视频已不存在：${it.record.title}"
+                    else -> "删除原视频失败：${it.record.title}"
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                getRecordList(biliDownService)
+            }
         }
     }
 
     return OutListPageState(
         status = taskStatus,
         recordList = recordList,
+        sourceExistsMap = sourceExistsMap,
     )
 }
 
@@ -195,6 +223,42 @@ internal fun ReconfirmDeleteDialog(
 }
 
 @Composable
+internal fun ReconfirmDeleteSourceDialog(
+    record: OutRecord?,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (record != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = "确认删除原视频？") },
+            text = {
+                Column {
+                    Text("删除：${record.title}")
+                    Text(
+                        color = Color.Red,
+                        text = "将删除哔哩哔哩缓存中的源视频（不可恢复），不影响已导出文件。",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onConfirm()
+                    onDismiss()
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
 fun OutListPage(
     navController: NavHostController,
 ) {
@@ -226,6 +290,19 @@ fun OutListPage(
         action = reconfirmDeleteDialogAction,
         onDismiss = {
             reconfirmDeleteDialogAction = null
+        },
+    )
+
+    var reconfirmDeleteSourceRecord by remember {
+        mutableStateOf<OutRecord?>(null)
+    }
+    ReconfirmDeleteSourceDialog(
+        record = reconfirmDeleteSourceRecord,
+        onDismiss = { reconfirmDeleteSourceRecord = null },
+        onConfirm = {
+            reconfirmDeleteSourceRecord?.let {
+                channel.trySend(OutListPageAction.DeleteSourceVideo(it))
+            }
         },
     )
 
@@ -265,7 +342,11 @@ fun OutListPage(
                         reconfirmDeleteDialogAction = OutListPageAction.DeleteRecord(
                             record = item, isDeleteFile = it
                         )
-                    }
+                    },
+                    sourceExists = item.id?.let { state.sourceExistsMap[it] } == true,
+                    onDeleteSourceClick = {
+                        reconfirmDeleteSourceRecord = item
+                    },
                 )
             }
         }

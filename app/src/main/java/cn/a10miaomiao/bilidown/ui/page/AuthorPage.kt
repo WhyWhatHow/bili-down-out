@@ -40,7 +40,6 @@ import cn.a10miaomiao.bilidown.entity.formatFileSize
 import cn.a10miaomiao.bilidown.service.BiliDownService
 import cn.a10miaomiao.bilidown.shizuku.localShizukuPermission
 import cn.a10miaomiao.bilidown.ui.BiliDownScreen
-import cn.a10miaomiao.bilidown.ui.components.BatchExportDialog
 import cn.a10miaomiao.bilidown.ui.components.DownloadListItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -226,7 +225,6 @@ fun AuthorPage(
 
     var selectMode by remember { mutableStateOf(false) }
     val selectedKeys = remember { mutableStateOf(setOf<String>()) }
-    var showBatchExportDialog by remember { mutableStateOf(false) }
     val deleteSourceEnabled by rememberDataStorePreferencesFlow(
         context = context,
         key = DataStoreKeys.exportDeleteSource,
@@ -247,23 +245,6 @@ fun AuthorPage(
                 )
             )
         }
-    }
-
-    if (showBatchExportDialog) {
-        BatchExportDialog(
-            videoCount = selectedVideos.size,
-            partCount = selectedItems.size,
-            deleteSourceEnabled = deleteSourceEnabled,
-            onDismiss = { showBatchExportDialog = false },
-            onConfirm = {
-                showBatchExportDialog = false
-                channel.trySend(
-                    AuthorPageAction.ExportBatch(selectedItems, deleteSourceEnabled)
-                )
-                selectMode = false
-                selectedKeys.value = emptySet()
-            },
-        )
     }
 
     Box(
@@ -399,7 +380,14 @@ fun AuthorPage(
                     }
                     TextButton(
                         enabled = selectedItems.isNotEmpty(),
-                        onClick = { showBatchExportDialog = true },
+                        onClick = {
+                            // 直接按全局设置导出，不再弹确认框（删除源文件仅在导出成功后执行）
+                            channel.trySend(
+                                AuthorPageAction.ExportBatch(selectedItems, deleteSourceEnabled)
+                            )
+                            selectMode = false
+                            selectedKeys.value = emptySet()
+                        },
                     ) {
                         Text("导出选中")
                     }

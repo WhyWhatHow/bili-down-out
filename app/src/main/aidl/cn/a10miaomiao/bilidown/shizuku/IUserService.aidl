@@ -18,4 +18,6 @@ interface IUserService {
     String exportBiliVideo(String entryDirPath, String outFilePath, ProgressCallback callback) = 5;
 
     String deleteBiliVideo(String entryDirPath) = 6;
+
+    boolean fileExists(String path) = 7;
 }

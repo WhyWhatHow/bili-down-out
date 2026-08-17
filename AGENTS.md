@@ -33,7 +33,7 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 
 注意：
 - 无 release 签名（缺 `app/signing.properties` + keystore），一律出 debug 包。
-- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 106 / "1.4.2"）。
+- **每次打包必须递增版本号**：`app/build.gradle` 中 `versionCode` +1、`versionName` 递增（当前 107 / "1.4.3"）。
 - 交付 APK 时复制到仓库根目录并按 `BiliDownOut-<版本>-debug.apk` 命名。
 - Android SDK 位于 `/opt/android-sdk`（local.properties 已配置则无需关心）。
 
@@ -84,12 +84,12 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 ### 1. 列表加载与 UP 主补全（DownloadListPage）
 
 - 采用 molecule 模式：`DownloadListPagePresenter(context, actionFlow)` 返回 State，UI 通过 channel 发 Action。
-- 流程：`getList` 先同步读 entry.json 渲染列表（**不能被网络阻塞**），随后 `fillMissingAuthors` 异步补全缺失 UP 主，完成后整体刷新。
+- 流程：`getList` 读 entry.json 后**先本地 peek 补全已知 UP 主再渲染**（否则下拉刷新会用空白 author 覆盖已补全的名字），随后 `fillMissingAuthors(fetchRemote=true)` 异步网络补全剩余缺失。
 - 新版 B 站客户端 entry.json 无 `owner`，需要调 B 站 API 补全：
   - key 兜底顺序 `bvid -> ep.bvid -> source.av_id -> avid`（番剧条目常缺顶层 bvid/avid，老视频无 bvid 走 avid）。
   - 并发 4 路 + 单条目一次重试，避免风控(-412)。
   - 结果持久化在 `filesDir/bili_author_cache.json`（`BiliAuthorRepository.init()` 在 App 启动时加载），**原子写**（.tmp + rename，防止写一半被杀丢整份缓存），兼容旧版纯 Map 格式。
-  - **负缓存（勿移除）**：会员/付费视频 view API 永远返回错误码，失败 key 记录时间戳，24h 内直接跳过不再请求；`getAuthor` 只写内存，批量完成后由调用方 `persist()` 统一落盘。
+  - **负缓存（勿移除）**：仅 B 站业务错误码（-403/-404 等，重试无意义）记 24h；**-412 风控与网络异常属暂态失败不记**（否则一次风控会让刷新 24h 内都"查不到"）。`getAuthor` 只写内存，批量完成后由调用方 `persist()` 统一落盘。
   - `peekAuthor()` 只读查询不发网络，供缓存优先路径（UP 页兜底）毫秒级补全。
 - **番剧/影视没有 UP 主**：author 为空且 type==BANGUMI 的统一归入 `BANGUMI_GROUP_LABEL`（"番剧·影视"）分组，不再显示"未知UP主"。
 - UP 分组默认收起（`expandedGroups` 状态），点击分组头右侧箭头展开/收起；点击 UP 主信息区（头像+名称）跳转 `AuthorPage`（该 UP 的视频列表，含多选批量导出）。
@@ -101,8 +101,9 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 ### 2. 导出队列（BiliDownService）
 
 - `tryAddTask` 入队后调用 `kickQueue()`：空闲时立即启动最早等待任务（**不要依赖 taskStatus StateFlow 变化触发**，状态未变时不会重发射）。
-- "导出后删除源文件"是全局设置（MorePage 开关，DataStore `exportDeleteSource`，默认关）。批量导出 BatchExportDialog 展示删除警示；单个导出 FileNameInputDialog 不再弹删除相关提示。
+- "导出后删除源文件"是全局设置（MorePage 开关，DataStore `exportDeleteSource`，默认关）。批量与单个导出均**不弹确认框**，直接按设置执行；删除只在导出成功后发生（`putOutRecord` status=SUCCESS && deleteSource → `deleteSourceDir`）。
 - 批量导出的文件检查与入库必须包在 `withContext(Dispatchers.IO)` 中。
+- 已导出页（OutListPage）菜单提供"删除原视频"：仅当源缓存仍存在时显示（`sourceVideoExists` 三通道预检查），确认后 `deleteSourceVideo` 删除，不影响导出文件与记录。
 
 ### 3. UI 约定
 
