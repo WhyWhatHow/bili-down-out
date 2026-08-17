@@ -5,9 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -404,7 +401,7 @@ fun OutListPage(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 80.dp),
         ) {
-        if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty()) {
+        if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty() && !selectMode) {
             // 顶部醒目的清理入口：提醒用户部分源视频仍占用缓存，点击进入多选模式自行勾选
             item(key = "cleanup_hint") {
                 Surface(
@@ -524,19 +521,16 @@ fun OutListPage(
         }
     }
 
-    // 多选模式下底部浮条：全选 / 删除原视频 / 取消
-    AnimatedVisibility(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(bottom = 8.dp),
-        visible = selectMode,
-        enter = slideInVertically(initialOffsetY = { it }),
-        exit = slideOutVertically(targetOffsetY = { it }),
-    ) {
+    // 多选模式下底部浮条：全选 / 删除原视频 / 取消。
+    // 用 if 而非 AnimatedVisibility，避免部分设备上动画首次测量高度为 0 导致浮条空白。
+    if (selectMode) {
         Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp)
+                .fillMaxWidth(),
             tonalElevation = 3.dp,
             shadowElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
                 modifier = Modifier

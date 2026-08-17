@@ -16,8 +16,8 @@ android {
         applicationId "cn.a10miaomiao.bilidown"
         minSdk 21
         targetSdk 35
-        versionCode 114
-        versionName "1.5.0"
+        versionCode 115
+        versionName "1.5.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
