@@ -401,6 +401,49 @@ fun OutListPage(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(bottom = 8.dp),
         ) {
+        // 多选操作条：作为列表的一个硬性 item 渲染，必显示（不采用悬浮/叠层，避免被遮挡）。
+        if (selectMode) {
+            item(key = "selection_bar") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "已选 ${selectedRecords.size} 个",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(
+                            onClick = {
+                                selectedIds.value = toggleSelectAll(
+                                    cleanableIds,
+                                    selectedIds.value,
+                                )
+                            },
+                        ) { Text("全选") }
+                        TextButton(
+                            enabled = selectedRecords.isNotEmpty(),
+                            onClick = { showBatchDeleteDialog = true },
+                        ) { Text("删除原视频(${selectedRecords.size})") }
+                        TextButton(
+                            onClick = {
+                                selectMode = false
+                                selectedIds.value = emptySet()
+                            },
+                        ) { Text("退出") }
+                    }
+                }
+            }
+        }
         if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty() && !selectMode) {
             // 顶部醒目的清理入口：提醒用户部分源视频仍占用缓存，点击进入多选模式自行勾选
             item(key = "cleanup_hint") {
@@ -519,52 +562,5 @@ fun OutListPage(
                 }
             }
         }
-    }
-
-    // 多选模式下底部浮条：全选 / 删除原视频 / 取消。
-    // 用 if 而非 AnimatedVisibility，避免部分设备上动画首次测量高度为 0 导致浮条空白。
-    if (selectMode) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            tonalElevation = 3.dp,
-            shadowElevation = 8.dp,
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "已选 ${selectedRecords.size} 个",
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = {
-                        selectedIds.value = toggleSelectAll(
-                            cleanableIds,
-                            selectedIds.value,
-                        )
-                    },
-                ) {
-                    Text("全选")
-                }
-                TextButton(
-                    enabled = selectedRecords.isNotEmpty(),
-                    onClick = { showBatchDeleteDialog = true },
-                ) {
-                    Text("删除原视频(${selectedRecords.size})")
-                }
-                TextButton(
-                    onClick = {
-                        selectMode = false
-                        selectedIds.value = emptySet()
-                    },
-                ) {
-                    Text("取消")
-                }
-            }
-        }
-    }
     }
 }
