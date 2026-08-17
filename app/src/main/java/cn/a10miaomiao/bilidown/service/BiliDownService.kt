@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import cn.a10miaomiao.bilidown.BiliDownApp
+import cn.a10miaomiao.bilidown.common.BiliDownOutFile
 import cn.a10miaomiao.bilidown.common.BiliEntryJsonParser
 import cn.a10miaomiao.bilidown.common.CommandUtil
 import cn.a10miaomiao.bilidown.common.MiaoLog
@@ -687,6 +688,66 @@ class BiliDownService :
 
     suspend fun getRecordList(status: Int): List<OutRecord> {
         return appDatabase.outRecordDao().getAllByStatus(status)
+    }
+
+    /**
+     * 扫描导出目录 Download/BiliDownOut/，将文件存在但数据库无记录的 .mp4 补回记录。
+     * 补回记录的 entryDirPath 为空（源未知），不可参与"删除原视频"操作。
+     * 用于卸载重装/清缓存后恢复已导出文件的管理入口。
+     */
+    suspend fun reconcileExportedFiles(): Int {
+        val outFolder = File(BiliDownOutFile.getOutFolderPath())
+        if (!outFolder.exists()) return 0
+        // 已有记录的所有导出文件路径集合（小写比较，兼容路径大小写差异）
+        val existingPaths = appDatabase.outRecordDao().getAll()
+            .map { it.outFilePath.lowercase() }
+            .toSet()
+        var inserted = 0
+        val currentTime = System.currentTimeMillis()
+        // 遍历 UP 主子目录 + 根目录下的 .mp4 文件
+        val authorDirs = outFolder.listFiles { f -> f.isDirectory }?.toList() ?: emptyList()
+        for (authorDir in authorDirs) {
+            val mp4Files = authorDir.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+                ?: continue
+            for (mp4File in mp4Files) {
+                if (mp4File.path.lowercase() !in existingPaths) {
+                    val record = OutRecord(
+                        entryDirPath = "", // 源未知：无法反查 B 站缓存路径
+                        outFilePath = mp4File.path,
+                        title = mp4File.nameWithoutExtension,
+                        cover = "",
+                        status = OutRecord.STATUS_SUCCESS,
+                        type = 1,
+                        deleteSource = false,
+                        createTime = currentTime,
+                        updateTime = currentTime,
+                    )
+                    appDatabase.outRecordDao().insertAll(record)
+                    inserted++
+                }
+            }
+        }
+        // 也检查根目录下（无 UP 主子目录）的 mp4
+        val rootMp4Files: Array<File> = outFolder.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+            ?: emptyArray()
+        for (mp4File in rootMp4Files) {
+            if (mp4File.path.lowercase() !in existingPaths) {
+                val record = OutRecord(
+                    entryDirPath = "",
+                    outFilePath = mp4File.path,
+                    title = mp4File.nameWithoutExtension,
+                    cover = "",
+                    status = OutRecord.STATUS_SUCCESS,
+                    type = 1,
+                    deleteSource = false,
+                    createTime = currentTime,
+                    updateTime = currentTime,
+                )
+                appDatabase.outRecordDao().insertAll(record)
+                inserted++
+            }
+        }
+        return inserted
     }
 
     suspend fun getRecordList(paths: Array<String>): List<OutRecord> {

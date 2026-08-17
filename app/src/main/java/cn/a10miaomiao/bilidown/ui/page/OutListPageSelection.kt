@@ -7,8 +7,9 @@ import cn.a10miaomiao.bilidown.db.dao.OutRecord
  * 必须同时满足：
  *  1. 记录已导出成功（status == SUCCESS）；
  *  2. 记录有 id（Room 主键非空）；
- *  3. 源缓存目录此刻确实仍存在（sourceExistsMap 命中且为 true）。
- * 任一条件不满足则不可删除，避免对未导出/源已不存在的记录误操作。
+ *  3. 记录有 entryDirPath（校正补回的记录无路径，不可清理）；
+ *  4. 源缓存目录此刻确实仍存在（sourceExistsMap 命中且为 true）。
+ * 任一条件不满足则不可删除，避免对未导出/源已不存在/源未知的记录误操作。
  */
 fun isCleanableRecord(
     record: OutRecord,
@@ -16,6 +17,7 @@ fun isCleanableRecord(
 ): Boolean {
     if (record.status != OutRecord.STATUS_SUCCESS) return false
     val id = record.id ?: return false
+    if (record.entryDirPath.isBlank()) return false
     return sourceExistsMap[id] == true
 }
 

@@ -45,6 +45,8 @@ fun RecordItem(
     sourceExists: Boolean = false,
     /** 源文件是否已删除；null 表示不适用（非成功记录），不显示 */
     sourceDeleted: Boolean? = null,
+    /** 源路径未知（校正补回的记录，无法反查 B 站缓存）；显示"源未知" */
+    sourceUnknown: Boolean = false,
     onDeleteSourceClick: (() -> Unit)? = null,
     selectMode: Boolean = false,
     selected: Boolean = false,
@@ -118,8 +120,14 @@ fun RecordItem(
                                 },
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            // 源文件状态：已成功导出时才显示"源已删除/仍在占用"
-                            if (sourceDeleted != null) {
+                            // 源文件状态：校正补回的记录显示"源未知"；其余按源是否已删显示
+                            if (sourceUnknown) {
+                                Text(
+                                    text = "源未知",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            } else if (sourceDeleted != null) {
                                 Text(
                                     text = if (sourceDeleted) "源已删除" else "源占用空间",
                                     style = MaterialTheme.typography.labelSmall,
