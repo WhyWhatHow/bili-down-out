@@ -1,0 +1,151 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlinx-serialization'
+    id 'kotlin-parcelize'
+    id 'com.google.devtools.ksp'
+}
+
+android {
+    namespace 'cn.a10miaomiao.bilidown'
+    compileSdk 35
+
+    boolean isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release") }
+
+    defaultConfig {
+        applicationId "cn.a10miaomiao.bilidown"
+        minSdk 21
+        targetSdk 35
+        versionCode 116
+        versionName "1.5.2"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+
+    }
+
+    File signingFile = file("signing.properties")
+    if (signingFile.exists()) {
+        Properties props = new Properties()
+        props.load(new FileInputStream(signingFile))
+        signingConfigs {
+            release {
+                keyAlias props['KEY_ALIAS']
+                keyPassword props['KEY_PASSWORD']
+                storeFile file(props['KEYSTORE_FILE'])
+                storePassword props['KEYSTORE_PASSWORD']
+            }
+            debug {
+                keyAlias props['KEY_ALIAS']
+                keyPassword props['KEY_PASSWORD']
+                storeFile file(props['KEYSTORE_FILE'])
+                storePassword props['KEYSTORE_PASSWORD']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingConfigs.hasProperty('release')) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    buildFeatures {
+        compose true
+        aidl true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion "1.5.10"
+    }
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+
+    splits {
+        if (!isReleaseTask) {
+            android.defaultConfig.ndk { abiFilters "arm64-v8a", "x86_64" }
+        }
+        abi {
+            reset()
+            enable isReleaseTask
+            include "armeabi-v7a","arm64-v8a","x86","x86_64"
+            universalApk false
+        }
+    }
+
+    final abiCodes = [
+        "x86": 1,
+        "x86_64": 2,
+        "armeabi-v7a": 3,
+        "arm64-v8a": 4,
+    ]
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            final abiName = com.android.build.OutputFile.ABI
+            final abiVersionCode = abiCodes.get(output.getFilter(abiName))
+            if (abiVersionCode != null) {
+                output.versionCodeOverride = variant.versionCode * 10 + abiVersionCode
+            }
+        }
+    }
+
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle false
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.ktx)
+    implementation(libs.androidx.lifecycle.rt.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.datastoree.preferences)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui.core)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material.core)
+    implementation(libs.compose.material3.core)
+    implementation(libs.compose.material3.window.size)
+    implementation(libs.androidx.navigation.compose) {
+        exclude group: 'androidx.compose.ui', module: 'ui-test-android'
+    }
+
+    implementation(libs.coil.compose)
+    implementation(libs.precompose.core)
+    implementation(libs.precompose.viewmodel)
+    implementation(libs.molecule.rt)
+
+    implementation(libs.room.rt)
+    implementation(libs.room.ktx)
+    annotationProcessor(libs.room.compiler)
+    ksp(libs.room.compiler)
+
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.rxffmpeg)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
+
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.junit)
+//    androidTestImplementation(libs.androidx.test.espresso)
+    androidTestImplementation(libs.compose.test.junit4)
+
+}
