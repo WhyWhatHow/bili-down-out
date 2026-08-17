@@ -1,8 +1,10 @@
 package cn.a10miaomiao.bilidown.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,12 +19,17 @@ import androidx.compose.ui.unit.dp
 import cn.a10miaomiao.bilidown.common.UrlUtil
 import cn.a10miaomiao.bilidown.entity.DownloadInfo
 import cn.a10miaomiao.bilidown.entity.DownloadType
+import cn.a10miaomiao.bilidown.entity.formatFileSize
 import coil.compose.AsyncImage
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DownloadListItem(
     item: DownloadInfo,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    selectMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier.padding(5.dp),
@@ -35,11 +42,22 @@ fun DownloadListItem(
             Column() {
                 Row(
                     modifier = Modifier
-                        .clickable(onClick = onClick)
+                        .combinedClickable(
+                            onClick = onClick,
+                            onLongClick = onLongClick,
+                        )
                         .padding(10.dp)
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (selectMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onClick() },
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                    }
+
                     AsyncImage(
                         model = UrlUtil.autoHttps(item.cover) + "@672w_378h_1c_",
                         contentDescription = item.title,
@@ -66,8 +84,9 @@ fun DownloadListItem(
                         } else {
                             "暂停中"
                         }
+                        val totalSize = item.items.sumOf { it.total_bytes }
                         Text(
-                            text = "${item.items.size}个视频 • $status",
+                            text = "${item.items.size}个视频 • $status • ${formatFileSize(totalSize)}",
                             maxLines = 1,
                             color = MaterialTheme.colorScheme.outline,
                             overflow = TextOverflow.Ellipsis,

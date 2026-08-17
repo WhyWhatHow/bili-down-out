@@ -29,11 +29,15 @@ data class BiliDownloadEntryInfo(
     val spid: Long? = null,
     val bvid: String? = null,
     val owner_id: Long? = null,
+    val owner: OwnerInfo? = null,
     var page_data: PageInfo? = null,
     val season_id: String? = null,
     val source: SourceInfo? = null,
     var ep: EpInfo? = null,
 ): Parcelable {
+
+    val author: String
+        get() = owner?.name ?: ""
 
     val key: Long
         get() {
@@ -102,6 +106,14 @@ data class BiliDownloadEntryInfo(
         val link: String = "",
         val bvid: String = "",
         val sort_index: Int = 0,
+    ): Parcelable
+
+    // UP主信息
+    @Serializable
+    @Parcelize
+    data class OwnerInfo(
+        val mid: Long? = null,
+        val name: String? = null,
     ): Parcelable
 
 }

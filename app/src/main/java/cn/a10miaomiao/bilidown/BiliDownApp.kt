@@ -1,6 +1,7 @@
 package cn.a10miaomiao.bilidown
 
 import android.app.Application
+import cn.a10miaomiao.bilidown.common.BiliAuthorRepository
 import cn.a10miaomiao.bilidown.db.AppDatabase
 import cn.a10miaomiao.bilidown.state.AppState
 
@@ -16,6 +17,7 @@ class BiliDownApp: Application() {
         AppCrashHandler.getInstance(this)
         state.init(this)
         database = AppDatabase.initialize(this)
+        BiliAuthorRepository.init(this)
     }
 
 }

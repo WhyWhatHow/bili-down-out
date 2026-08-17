@@ -200,6 +200,22 @@ class UserService: IUserService.Stub, CoroutineScope {
         }
     }
 
+    @Throws(RemoteException::class)
+    override fun deleteBiliVideo(entryDirPath: String?): String? {
+        if (entryDirPath.isNullOrBlank()) {
+            return "路径为空"
+        }
+        val dir = File(entryDirPath)
+        if (!dir.exists()) {
+            return "源文件不存在"
+        }
+        return if (dir.deleteRecursively()) {
+            null
+        } else {
+            "删除失败"
+        }
+    }
+
     private suspend fun copyFile(
         inputFile: File,
         outFile: File

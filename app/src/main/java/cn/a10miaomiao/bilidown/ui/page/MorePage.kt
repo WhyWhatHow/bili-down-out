@@ -18,15 +18,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.datastore.preferences.core.edit
 import androidx.navigation.NavHostController
 import cn.a10miaomiao.bilidown.R
 import cn.a10miaomiao.bilidown.common.BiliDownUtils
 import cn.a10miaomiao.bilidown.common.datastore.DataStoreKeys
+import cn.a10miaomiao.bilidown.common.datastore.dataStore
 import cn.a10miaomiao.bilidown.common.datastore.rememberDataStorePreferencesFlow
 import cn.a10miaomiao.bilidown.common.molecule.collectAction
 import cn.a10miaomiao.bilidown.common.molecule.rememberPresenter
@@ -38,6 +41,7 @@ import cn.a10miaomiao.bilidown.ui.components.SettingItem
 import cn.a10miaomiao.bilidown.ui.components.ShizukuHelpDialog
 import cn.a10miaomiao.bilidown.ui.components.ShizukuHelpDialogAction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 data class MorePageState(
     val versionName: String,
@@ -107,6 +111,21 @@ fun MorePage(
         action = dialogAction,
         onDismiss = { dialogAction = ShizukuHelpDialogAction.None }
     )
+    val scope = rememberCoroutineScope()
+    val deleteSourceEnabled by rememberDataStorePreferencesFlow(
+        context = context,
+        key = DataStoreKeys.exportDeleteSource,
+        initial = false,
+    ).collectAsState(false)
+
+    fun changeDeleteSourceEnabled(enabled: Boolean) {
+        scope.launch {
+            context.dataStore.edit {
+                it[DataStoreKeys.exportDeleteSource] = enabled
+            }
+        }
+    }
+
     val scrollableState = rememberScrollState()
     Column(
         modifier = Modifier.verticalScroll(scrollableState)
@@ -131,6 +150,23 @@ fun MorePage(
             }
         ) {
             changeShizukuEnabled(!shizukuPermissionState.isEnabled)
+        }
+
+        SettingItem(
+            title = "导出后删除源文件",
+            desc = if (deleteSourceEnabled) {
+                "已开启：导出成功后自动删除哔哩缓存（不可恢复）"
+            } else {
+                "已关闭：导出后保留哔哩缓存"
+            },
+            action = {
+                Switch(
+                    checked = deleteSourceEnabled,
+                    onCheckedChange = ::changeDeleteSourceEnabled,
+                )
+            }
+        ) {
+            changeDeleteSourceEnabled(!deleteSourceEnabled)
         }
 
         SettingItem(

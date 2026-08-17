@@ -1,5 +1,6 @@
 package cn.a10miaomiao.bilidown.ui.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,6 +22,8 @@ fun FileNameInputDialog(
     showInputDialog: Boolean,
     fileName: String,
     confirmText: String,
+    author: String = "",
+    deleteSourceEnabled: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (outFile: BiliDownOutFile) -> Unit,
 ) {
@@ -46,7 +49,7 @@ fun FileNameInputDialog(
         } else if (name.indexOf(' ') > 0) {
             errorText = "文件名不能含有格"
         } else {
-            val outFile = BiliDownOutFile(name)
+            val outFile = BiliDownOutFile(name, author)
             if (outFile.exists()) {
                 errorText = "文件已存在"
             } else {
@@ -68,31 +71,46 @@ fun FileNameInputDialog(
             onDismissRequest = onDismiss,
             title = { Text(text = "输入文件名：") },
             text = {
-                TextField(
-                    label = {
-                        Text(text = "文件名")
-                    },
-                    trailingIcon = {
-                        Text(text = ".mp4")
-                    },
-                    supportingText = {
-                        Text(text = errorText)
-                    },
-                    isError = errorText.isNotBlank(),
-                    value = value,
-                    onValueChange = {
-                        value = it
-                        errorText = ""
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = { handleConfirm() }
-                    ),
-                )
+                Column {
+                    TextField(
+                        label = {
+                            Text(text = "文件名")
+                        },
+                        trailingIcon = {
+                            Text(text = ".mp4")
+                        },
+                        supportingText = {
+                            Text(text = errorText)
+                        },
+                        isError = errorText.isNotBlank(),
+                        value = value,
+                        onValueChange = {
+                            value = it
+                            errorText = ""
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { handleConfirm() }
+                        ),
+                    )
+                    Text(
+                        text = if (deleteSourceEnabled) {
+                            "导出成功后将删除源文件（哔哩缓存，不可恢复）！可在设置中关闭"
+                        } else {
+                            "导出后保留源文件（可在设置中开启删除）"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (deleteSourceEnabled) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                    )
+                }
             },
             confirmButton = {
                 TextButton(

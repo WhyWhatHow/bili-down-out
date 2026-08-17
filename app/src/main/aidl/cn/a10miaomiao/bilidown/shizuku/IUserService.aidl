@@ -16,4 +16,6 @@ interface IUserService {
     List<BiliDownloadEntryAndPathInfo> readDownloadDirectory(String path) = 4;
 
     String exportBiliVideo(String entryDirPath, String outFilePath, ProgressCallback callback) = 5;
+
+    String deleteBiliVideo(String entryDirPath) = 6;
 }
