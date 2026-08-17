@@ -53,6 +53,8 @@ data class AuthorPageState(
     /** 是否已完成一次成功加载（含结果为空）。防止空结果 + Shizuku 状态变化触发无限重扫 */
     val loaded: Boolean,
     val failMessage: String,
+    /** 扫描计数进度（total 未知时为扫描阶段） */
+    val loadProgress: ListLoadProgress?,
 )
 
 sealed class AuthorPageAction {
@@ -87,6 +89,7 @@ fun AuthorPagePresenter(
     var loading by remember { mutableStateOf(true) }
     var loaded by remember { mutableStateOf(false) }
     var failMessage by remember { mutableStateOf("") }
+    var loadProgress by remember { mutableStateOf<ListLoadProgress?>(null) }
 
     suspend fun getList(
         packageName: String,
@@ -113,11 +116,14 @@ fun AuthorPagePresenter(
             }
             loading = true
             failMessage = ""
-            val entryList = biliDownFile.readDownloadList()
+            loadProgress = null
+            val entryList = biliDownFile.readDownloadList { scanned ->
+                loadProgress = ListLoadProgress(total = 0, processed = scanned)
+            }
             val allList = buildDownloadInfoList(entryList)
             // 兜底路径只查本地磁盘缓存补全 UP 主（毫秒级），
             // 不等网络：已知缓存的立即显示，查不到的归"未知UP主/番剧·影视"组
-            fillMissingAuthors(entryList, allList, fetchRemote = false) { }
+            fillMissingAuthors(entryList, allList, fetchRemote = false, onUpdated = { })
             // 写回内存缓存并落盘：下次进入本页或列表页恢复时直接命中，不再重扫
             appState.downloadListCache[packageName] = allList.toList()
             appState.saveListCache()
@@ -204,6 +210,7 @@ fun AuthorPagePresenter(
         loading = loading,
         loaded = loaded,
         failMessage = failMessage,
+        loadProgress = loadProgress,
     )
 }
 
@@ -264,7 +271,7 @@ fun AuthorPage(
                     )
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
-                        "正在读取列表",
+                        "正在读取列表…已处理 ${state.loadProgress?.processed ?: 0} 个",
                         color = MaterialTheme.colorScheme.outline,
                     )
                 } else if (state.failMessage.isNotBlank()) {

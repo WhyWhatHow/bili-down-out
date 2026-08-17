@@ -23,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -93,14 +94,28 @@ import java.util.concurrent.ConcurrentHashMap
  * 覆盖普通视频与番剧（番剧 entry 常缺顶层 bvid/avid）。
  * 返回 key 为 bvid 或 "av{avid}"；总超时 20 秒，超时返回已查到的部分。
  */
+/** "正在读取列表"的加载进度：total 表示需要处理的视频数（>0 时确定），processed 表示已完成 */
+data class ListLoadProgress(
+    val total: Int,
+    val processed: Int,
+) {
+    val remaining: Int get() = if (total > 0) (total - processed).coerceAtLeast(0) else -1
+    val determinate: Boolean get() = total > 0
+}
+
 internal suspend fun fetchAuthors(
     entries: List<BiliDownloadEntryInfo>,
+    onProgress: (processed: Int, total: Int) -> Unit = { _, _ -> },
 ): Map<String, BiliAuthorRepository.Author> {
     val needFetch = entries.filter { it.author.isBlank() }
         .distinctBy { it.keyForAuthorFetch() }
     if (needFetch.isEmpty()) {
         return emptyMap()
     }
+    val total = needFetch.size
+    onProgress(0, total)
+    // 线程安全计数：网络补全阶段已处理的条目数（成功或失败都算，并发 4 路）
+    val counter = java.util.concurrent.atomic.AtomicInteger(0)
     val result = withTimeoutOrNull(20_000L) {
         val fetched = ConcurrentHashMap<String, BiliAuthorRepository.Author>()
         coroutineScope {
@@ -109,16 +124,20 @@ internal suspend fun fetchAuthors(
             needFetch.forEach { entry ->
                 launch {
                     semaphore.withPermit {
-                        // 依次尝试各 key 来源，任一成功即停止
-                        entry.authorKeyCandidates().forEach { (avid, bvid) ->
-                            val author = BiliAuthorRepository.getAuthor(
-                                avid = avid,
-                                bvid = bvid,
-                            )
-                            if (author != null) {
-                                fetched[entry.keyForAuthorFetch()] = author
-                                return@withPermit
+                        try {
+                            // 依次尝试各 key 来源，任一成功即停止
+                            authorCandidates@ for ((avid, bvid) in entry.authorKeyCandidates()) {
+                                val author = BiliAuthorRepository.getAuthor(
+                                    avid = avid,
+                                    bvid = bvid,
+                                )
+                                if (author != null) {
+                                    fetched[entry.keyForAuthorFetch()] = author
+                                    break@authorCandidates
+                                }
                             }
+                        } finally {
+                            onProgress(counter.incrementAndGet(), total)
                         }
                     }
                 }
@@ -176,13 +195,14 @@ internal suspend fun fillMissingAuthors(
     newList: MutableList<DownloadInfo>,
     fetchRemote: Boolean = true,
     onUpdated: () -> Unit = {},
+    onProgress: (processed: Int, total: Int) -> Unit = { _, _ -> },
 ) {
     val hasMissing = newList.any { it.author.isBlank() }
     if (!hasMissing) {
         return
     }
     val dirToAuthor = if (fetchRemote) {
-        val authorMap = fetchAuthors(entryList.map { it.entry })
+        val authorMap = fetchAuthors(entryList.map { it.entry }, onProgress)
         if (authorMap.isEmpty()) {
             return
         }
@@ -217,6 +237,7 @@ data class DownloadListPageState(
     val loading: Boolean,
     val refreshing: Boolean,
     val failMessage: String,
+    val loadProgress: ListLoadProgress?,
 )
 
 sealed class DownloadListPageAction {
@@ -259,6 +280,9 @@ fun DownloadListPagePresenter(
     var refreshing by remember {
         mutableStateOf(false)
     }
+    var loadProgress by remember {
+        mutableStateOf<ListLoadProgress?>(null)
+    }
 
     suspend fun getList(
         packageName: String,
@@ -273,23 +297,34 @@ fun DownloadListPagePresenter(
             }
             loading = true
             failMessage = ""
-            val entryList = biliDownFile.readDownloadList()
+            // 扫描阶段：逐个读取缓存分P，实时回报已扫描数（total 未知，显示不确定进度）
+            val entryList = biliDownFile.readDownloadList { scanned ->
+                loadProgress = ListLoadProgress(total = 0, processed = scanned)
+            }
             // entry -> DownloadInfo 的映射逻辑与 UP 主详情页共用
             val newList = buildDownloadInfoList(entryList)
             // 渲染前先用本地缓存同步补全已知 UP 主（毫秒级，不发网络）：
             // 否则下拉刷新会用空白 author 覆盖已补全的名字，网络失败时"越刷越退"
-            fillMissingAuthors(entryList, newList, fetchRemote = false) { }
+            fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { })
             list = newList.toList()
             // 写入进程内缓存并落盘，UP 主页直接复用，免去重复全量遍历目录
             val appState = (context.applicationContext as BiliDownApp).state
             appState.downloadListCache[packageName] = list
             appState.saveListCache()
-            // 再异步网络补全剩余缺失的 UP 主，避免网络请求阻塞列表展示
-            fillMissingAuthors(entryList, newList) {
-                list = newList.toList()
-                appState.downloadListCache[packageName] = list
-                appState.saveListCache()
-            }
+            // 再异步网络补全剩余缺失的 UP 主，避免网络请求阻塞列表展示；
+            // 补全阶段回报总待处理数 & 已处理数（确定进度）
+            fillMissingAuthors(
+                entryList,
+                newList,
+                onUpdated = {
+                    list = newList.toList()
+                    appState.downloadListCache[packageName] = list
+                    appState.saveListCache()
+                },
+                onProgress = { processed, total ->
+                    loadProgress = ListLoadProgress(total = total, processed = processed)
+                },
+            )
         } catch (e: TimeoutCancellationException) {
             e.printStackTrace()
             failMessage = if (enabledShizuku) {
@@ -373,12 +408,13 @@ fun DownloadListPagePresenter(
         }
     }
     return DownloadListPageState(
-        list,
-        path,
-        canRead,
-        loading,
-        refreshing,
-        failMessage,
+        list = list,
+        path = path,
+        canRead = canRead,
+        loading = loading,
+        refreshing = refreshing,
+        failMessage = failMessage,
+        loadProgress = loadProgress,
     )
 }
 
@@ -501,15 +537,39 @@ fun DownloadListPage(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (state.loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        strokeWidth = 4.dp,
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Text(
-                        "正在读取列表",
-                        color = MaterialTheme.colorScheme.outline,
-                    )
+                    val progress = state.loadProgress
+                    if (progress?.determinate == true) {
+                        // 补全阶段：总待处理数已知，显示确定进度
+                        CircularProgressIndicator(
+                            progress = {
+                                (progress.processed.toFloat() / progress.total).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier.size(40.dp),
+                            strokeWidth = 4.dp,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "正在补全UP主信息 ${progress.processed}/${progress.total}",
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "已处理 ${progress.processed}，未处理 ${progress.remaining}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    } else {
+                        // 扫描阶段：total 未知，显示不确定进度 + 已扫描计数
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(40.dp),
+                            strokeWidth = 4.dp,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "正在读取列表…已处理 ${progress?.processed ?: 0} 个",
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
                 } else if (!permissionState.isGranted || !permissionState.isExternalStorage) {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -592,6 +652,32 @@ fun DownloadListPage(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 80.dp),
             ) {
+                // 网络补全 UP 主进行中：列表顶部显示确定进度（总数/已处理/未处理）
+                state.loadProgress?.takeIf { it.determinate && it.processed < it.total }?.let { p ->
+                    item(key = "author_progress") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LinearProgressIndicator(
+                                progress = {
+                                    (p.processed.toFloat() / p.total).coerceIn(0f, 1f)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(6.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "补全UP ${p.processed}/${p.total} · 未 ${p.remaining}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    }
+                }
                 // 紧凑排序栏：点击"文件名/大小"在 升序->降序 间循环切换，方向显示在 chip 内
                 item(key = "sort_bar") {
                     Row(

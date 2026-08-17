@@ -46,7 +46,9 @@ class BiliDownFile(
     }
 
     @Throws(TimeoutCancellationException::class)
-    suspend fun readDownloadList(): List<BiliDownloadEntryAndPathInfo> {
+    suspend fun readDownloadList(
+        onScanned: (scanned: Int) -> Unit = {},
+    ): List<BiliDownloadEntryAndPathInfo> {
         val downloadDir = createMiaoFile(DIR_DOWNLOAD)
         val list = mutableListOf<BiliDownloadEntryAndPathInfo>()
         MiaoLog.debug { enabledShizuku.toString() }
@@ -58,49 +60,63 @@ class BiliDownFile(
             list.addAll(withTimeout(SHIZUKU_CALL_TIMEOUT_MS) {
                 userService.readDownloadList(downloadDir.path)
             })
+            onScanned(list.size)
         } else {
+            var scanned = 0
             downloadDir.listFiles()
                 .filter { it.isDirectory }
                 .forEach {
                     Log.d(TAG, it.path)
-                    list.addAll(readDownloadDirectory(it))
+                    val sub = readDownloadDirectory(it) { scanned = it; onScanned(scanned) }
+                    scanned += sub.size
+                    onScanned(scanned)
                 }
         }
         return list.reversed()
     }
 
-    suspend fun readDownloadDirectory(dir: MiaoFile): List<BiliDownloadEntryAndPathInfo> {
+    suspend fun readDownloadDirectory(
+        dir: MiaoFile,
+        onScanned: (scanned: Int) -> Unit = {},
+    ): List<BiliDownloadEntryAndPathInfo> {
         if (enabledShizuku) {
             val userService = RemoteServiceUtil.getUserService()
-            return withTimeout(SHIZUKU_CALL_TIMEOUT_MS) {
+            val result = withTimeout(SHIZUKU_CALL_TIMEOUT_MS) {
                 userService.readDownloadDirectory(dir.path)
             }
+            onScanned(result.size)
+            return result
         }
         if (!dir.exists() || !dir.isDirectory) {
             return emptyList()
         }
-        return dir.listFiles()
+        val result = mutableListOf<BiliDownloadEntryAndPathInfo>()
+        var scanned = 0
+        dir.listFiles()
             .filter { pageDir -> pageDir.isDirectory }
-            .map {
+            .forEach {
                 val entryFile = if (it is MiaoDocumentFile) {
                     MiaoDocumentFile(context, it.documentFile, "/entry.json")
                 } else {
                     MiaoJavaFile(it.path + "/entry.json")
                 }
-                Pair(it, entryFile)
-            }
-            .filter { it.second.exists() }
-            .mapNotNull {
-                val (entryDir, entryFile) = it
+                if (!entryFile.exists()) {
+                    return@forEach
+                }
                 val entryJson = entryFile.readText()
                 val entry = BiliEntryJsonParser.parseOrNull(entryJson)
-                    ?: return@mapNotNull null
-                BiliDownloadEntryAndPathInfo(
-                    entry = entry,
-                    entryDirPath = entryDir.path,
-                    pageDirPath = dir.path
+                    ?: return@forEach
+                result.add(
+                    BiliDownloadEntryAndPathInfo(
+                        entry = entry,
+                        entryDirPath = it.path,
+                        pageDirPath = dir.path
+                    )
                 )
+                scanned++
+                onScanned(scanned)
             }
+        return result
     }
 
     //获取指定目录的权限
