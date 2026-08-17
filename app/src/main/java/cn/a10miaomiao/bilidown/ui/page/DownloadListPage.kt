@@ -52,6 +52,7 @@ import cn.a10miaomiao.bilidown.common.MiaoLog
 import cn.a10miaomiao.bilidown.common.UrlUtil
 import cn.a10miaomiao.bilidown.common.datastore.DataStoreKeys
 import cn.a10miaomiao.bilidown.common.datastore.rememberDataStorePreferencesFlow
+import cn.a10miaomiao.bilidown.BiliDownApp
 import cn.a10miaomiao.bilidown.common.lifecycle.LaunchedLifecycleObserver
 import cn.a10miaomiao.bilidown.common.localStoragePermission
 import cn.a10miaomiao.bilidown.common.molecule.collectAction
@@ -249,9 +250,13 @@ fun DownloadListPagePresenter(
             // entry -> DownloadInfo 的映射逻辑与 UP 主详情页共用
             val newList = buildDownloadInfoList(entryList)
             list = newList.toList()
+            // 写入进程内缓存，UP 主页直接复用，免去重复全量遍历目录
+            val appState = (context.applicationContext as BiliDownApp).state
+            appState.downloadListCache[packageName] = list
             // 先渲染列表，再异步补全缺失的 UP 主名称，避免网络请求阻塞列表展示
             fillMissingAuthors(entryList, newList) {
                 list = newList.toList()
+                appState.downloadListCache[packageName] = list
             }
         } catch (e: TimeoutCancellationException) {
             e.printStackTrace()

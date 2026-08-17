@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import cn.a10miaomiao.bilidown.BiliDownApp
 import cn.a10miaomiao.bilidown.common.BiliDownFile
 import cn.a10miaomiao.bilidown.common.BiliDownOutFile
 import cn.a10miaomiao.bilidown.common.MiaoLog
@@ -42,6 +43,7 @@ import cn.a10miaomiao.bilidown.ui.BiliDownScreen
 import cn.a10miaomiao.bilidown.ui.components.BatchExportDialog
 import cn.a10miaomiao.bilidown.ui.components.DownloadListItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
@@ -89,7 +91,18 @@ fun AuthorPagePresenter(
         enabledShizuku: Boolean,
     ) {
         try {
-            MiaoLog.debug { "AuthorPage.getList(author:$author)" }
+            val appState = (context.applicationContext as BiliDownApp).state
+            // 缓存优先：列表页已加载过则直接复用，秒开且零磁盘 IO。
+            // 全量遍历 /Android/data 在 SAF 下每个文件操作都是一次 IPC，非常慢，
+            // 之前每次进入本页都重复执行导致明显卡顿。
+            val cached = appState.downloadListCache[packageName]
+            if (cached != null) {
+                list = cached.filter { it.authorGroupKey() == author }
+                face = list.firstNotNullOfOrNull { it.authorFace }
+                return
+            }
+            // 兜底：进程被杀恢复等场景缓存缺失，才走磁盘读取
+            MiaoLog.debug { "AuthorPage.getList(author:$author) cache miss" }
             val biliDownFile = BiliDownFile(context, packageName, enabledShizuku)
             if (!biliDownFile.canRead()) {
                 failMessage = "无权限读取哔哩哔哩下载目录"
@@ -99,13 +112,20 @@ fun AuthorPagePresenter(
             failMessage = ""
             val entryList = biliDownFile.readDownloadList()
             val allList = buildDownloadInfoList(entryList)
-            // 先用已有 author 信息过滤渲染，再异步补全缺失 UP 主后刷新
+            // 先用已有 author 信息过滤渲染，再异步补全缺失 UP 主后刷新（仅兜底路径）
             fun filterByAuthor() = allList.filter { it.authorGroupKey() == author }
             list = filterByAuthor()
             face = list.firstNotNullOfOrNull { it.authorFace }
             fillMissingAuthors(entryList, allList) {
                 list = filterByAuthor()
                 face = list.firstNotNullOfOrNull { it.authorFace }
+            }
+        } catch (e: TimeoutCancellationException) {
+            e.printStackTrace()
+            failMessage = if (enabledShizuku) {
+                "连接Shizuku服务超时，建议您尝试停止并重新激活Shizuku！"
+            } else {
+                "读取缓存列表超时！"
             }
         } catch (e: Exception) {
             e.printStackTrace()
