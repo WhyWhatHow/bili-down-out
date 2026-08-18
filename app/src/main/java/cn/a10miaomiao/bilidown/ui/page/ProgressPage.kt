@@ -85,6 +85,7 @@ fun ProgressPagePresenter(
 
             is ProgressPageAction.GetTaskList -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 recordList = biliDownService.getRecordList(OutRecord.STATUS_WAIT)
                 withContext(Dispatchers.IO) {
                     recordList = recordList.map { record ->
@@ -102,10 +103,12 @@ fun ProgressPagePresenter(
 
             is ProgressPageAction.StartTask -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 biliDownService.startTask(it.record)
             }
             is ProgressPageAction.RemoveTask -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 biliDownService.delTask(it.record, false)
                 recordList = biliDownService.getRecordList(OutRecord.STATUS_WAIT)
             }

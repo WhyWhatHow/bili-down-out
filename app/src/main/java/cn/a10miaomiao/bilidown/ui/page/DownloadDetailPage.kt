@@ -75,6 +75,7 @@ fun DownloadDetailPagePresenter(
     }
     LaunchedEffect(packageName, dirPath) {
         val biliDownService = BiliDownService.getService(context)
+            ?: return@LaunchedEffect
         val appState = (context.applicationContext as BiliDownApp).state
         val shizukuState = appState.shizukuState.value
         val biliDownFile = BiliDownFile(context, packageName, shizukuState.isEnabled)
@@ -198,6 +199,7 @@ fun DownloadDetailPagePresenter(
         when (it) {
             is DownloadDetailPageAction.Export -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 val isSuccess = biliDownService.exportBiliVideo(
                     it.entryDirPath,
                     it.outFile.file,
@@ -216,6 +218,7 @@ fun DownloadDetailPagePresenter(
 
             is DownloadDetailPageAction.AddTask -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 biliDownService.addTask(
                     it.entryDirPath,
                     it.outFilePath,

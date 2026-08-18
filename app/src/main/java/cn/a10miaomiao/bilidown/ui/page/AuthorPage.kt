@@ -159,6 +159,7 @@ fun AuthorPagePresenter(
 
             is AuthorPageAction.ExportBatch -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 var addedCount = 0
                 var skipCount = 0
                 withContext(Dispatchers.IO) {

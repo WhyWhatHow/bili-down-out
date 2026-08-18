@@ -358,6 +358,7 @@ fun DownloadListPagePresenter(
 
             is DownloadListPageAction.ExportBatch -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 var addedCount = 0
                 var skipCount = 0
                 // 文件存在性检查与入库均为 IO 操作，移到 IO 线程避免阻塞 UI

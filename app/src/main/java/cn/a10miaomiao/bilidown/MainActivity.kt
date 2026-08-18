@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
 
     private lateinit var storagePermission: StoragePermission
     private lateinit var shizukuPermission: ShizukuPermission
-    private lateinit var biliDownService: BiliDownService
+    private var biliDownService: BiliDownService? = null
     private var userService: IUserService? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {

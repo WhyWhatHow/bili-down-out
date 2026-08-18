@@ -137,6 +137,7 @@ fun OutListPagePresenter(
         when (it) {
             OutListPageAction.GetRecordList -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 getRecordList(biliDownService)
             }
             is OutListPageAction.OpenVideo -> {
@@ -165,11 +166,13 @@ fun OutListPagePresenter(
             }
             is OutListPageAction.DeleteRecord -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 biliDownService.delTask(it.record, it.isDeleteFile)
                 getRecordList(biliDownService)
             }
             is OutListPageAction.DeleteSourceVideo -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 val message = when (biliDownService.deleteSourceVideo(it.record.entryDirPath)) {
                     null -> "已删除原视频：${it.record.title}"
                     BiliDownService.SOURCE_NOT_FOUND -> "原视频已不存在：${it.record.title}"
@@ -182,6 +185,7 @@ fun OutListPagePresenter(
             }
             is OutListPageAction.DeleteSourceVideoBatch -> {
                 val biliDownService = BiliDownService.getService(context)
+                    ?: return@collectAction
                 var deleted = 0
                 var notFound = 0
                 var failed = 0

@@ -27,10 +27,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -44,22 +46,52 @@ class BiliDownService :
         private const val TAG = "DownloadService"
         /** deleteSourceVideo 返回值：源缓存目录已不存在 */
         const val SOURCE_NOT_FOUND = "source_not_found"
+        /** 等待服务 onCreate 回调（channel 发送实例）的超时，防止 channel.receive() 永久悬挂 */
+        private const val SERVICE_START_TIMEOUT_MS = 10_000L
+        /** 队列空闲自停的延迟确认时间，避免服务停在新任务入队之前 */
+        private const val IDLE_STOP_DELAY_MS = 5_000L
         private val channel = Channel<BiliDownService>()
         private var _instance: BiliDownService? = null
+        /** 防止并发调用 [getService] 时重复启动服务，导致 channel.receive() 悬挂 */
+        private val startLock = Mutex()
 
 //        val instance get() = _instance
 
-        suspend fun getService(context: Context): BiliDownService {
+        /**
+         * 获取导出服务实例。
+         * - 服务已在运行时直接返回；
+         * - 未运行时尝试启动（互斥保证同一时间只有一个调用方发起启动并等待 onCreate 回调）；
+         * - 应用处于后台（Android 12+ 禁止后台 startService）或启动失败时返回 null，
+         *   调用方应跳过该次操作，避免 BackgroundServiceStartNotAllowedException 崩溃。
+         */
+        suspend fun getService(context: Context): BiliDownService? {
             _instance?.let { return it }
-            startService(context)
-            return channel.receive().also {
-                _instance = it
+            return startLock.withLock {
+                _instance?.let { return@withLock it }
+                if (!tryStartService(context)) {
+                    return@withLock null
+                }
+                // 服务已由其他路径启动时不会再次走 onCreate 发送，用超时兜底防止悬挂
+                withTimeoutOrNull(SERVICE_START_TIMEOUT_MS) {
+                    channel.receive()
+                }?.also { _instance = it }
             }
         }
 
-        fun startService(context: Context) {
+        /** 启动导出服务。后台调用会被 Android 12+ 拒绝，捕获后返回 false 由调用方降级处理。 */
+        fun tryStartService(context: Context): Boolean {
             val intent = Intent(context, BiliDownService::class.java)
-            context.startService(intent)
+            return try {
+                context.startService(intent)
+                true
+            } catch (e: IllegalStateException) {
+                // Android 12+ 后台 startService 会抛 BackgroundServiceStartNotAllowedException
+                MiaoLog.debug { "启动导出服务被拒绝（可能处于后台）：${e.message}" }
+                false
+            } catch (e: SecurityException) {
+                MiaoLog.debug { "启动导出服务无权限：${e.message}" }
+                false
+            }
         }
     }
 
@@ -69,6 +101,9 @@ class BiliDownService :
     private var job: Job = Job()
     override val coroutineContext: CoroutineContext
         get() = Dispatchers.IO + job
+
+    /** 队列空闲自停延迟任务：队列空且无进行中任务时延迟 stopSelf，防止停在新任务入队前 */
+    private var idleStopJob: Job? = null
 
     private val myProgressCallback by lazy {
         MyProgressCallback(this@BiliDownService, appState)
@@ -88,7 +123,20 @@ class BiliDownService :
                     val waitRecords = appDatabase.outRecordDao()
                         .getAllByStatus(OutRecord.STATUS_WAIT)
                     if (waitRecords.isNotEmpty()) {
+                        idleStopJob?.cancel()
                         startTask(waitRecords.first())
+                    } else {
+                        // 队列已空：延迟确认后再自停，给"正在入队"的新任务留出时间
+                        idleStopJob?.cancel()
+                        idleStopJob = launch {
+                            delay(IDLE_STOP_DELAY_MS)
+                            val stillEmpty = appDatabase.outRecordDao()
+                                .getAllByStatus(OutRecord.STATUS_WAIT).isEmpty()
+                            val stillIdle = appState.taskStatus.value is TaskStatus.InIdle
+                            if (stillEmpty && stillIdle) {
+                                stopSelf()
+                            }
+                        }
                     }
                 }
             }
@@ -795,6 +843,8 @@ class BiliDownService :
         cover: String,
         deleteSource: Boolean,
     ): Int {
+        // 有新任务入队，取消待执行的空闲自停，避免任务停在新入队前
+        idleStopJob?.cancel()
         val outRecordDao = appDatabase.outRecordDao()
         val record = outRecordDao.findByPath(entryDirPath)
         val currentTime = System.currentTimeMillis()
