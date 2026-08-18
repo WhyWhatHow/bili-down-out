@@ -36,8 +36,9 @@ fun DownloadListItem(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer
+            shadowElevation = 1.dp,
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surface
         ) {
             Column() {
                 Row(
@@ -64,7 +65,7 @@ fun DownloadListItem(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(width = 120.dp, height = 80.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(RoundedCornerShape(8.dp))
                     )
 
                     Column(

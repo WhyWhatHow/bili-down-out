@@ -37,8 +37,9 @@ fun DownloadDetailItem(
         Surface(
             modifier = Modifier.fillMaxWidth()
                 .clickable(onClick = onClick),
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 1.dp,
         ) {
             Column() {
                 Row(
