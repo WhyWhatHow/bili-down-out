@@ -16,8 +16,8 @@ android {
         applicationId "cn.a10miaomiao.bilidown"
         minSdk 21
         targetSdk 35
-        versionCode 119
-        versionName "1.6.0"
+        versionCode 120
+        versionName "1.6.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -73,6 +73,12 @@ android {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
+    }
+
+    testOptions {
+        // 让单元测试中 android.jar 桩方法返回默认值（而非抛 Stub!），
+        // 便于测试引用了 android.os.*（如 Environment）的纯逻辑。
+        unitTests.returnDefaultValues = true
     }
 
     splits {

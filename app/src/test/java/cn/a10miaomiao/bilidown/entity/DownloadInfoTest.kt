@@ -1,6 +1,7 @@
 package cn.a10miaomiao.bilidown.entity
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.serialization.json.Json
 
@@ -91,6 +92,81 @@ class DownloadInfoTest {
         cid = 0L,
         epid = 0L,
     )
+
+    // ---- 扁平列表排序（UP 主页 applySort）边界 ----
+
+    private fun flatVideo(
+        dirPath: String,
+        title: String,
+        bytesList: List<Long> = listOf(0L),
+    ) = video(dirPath, "UP甲").copy(
+        title = title,
+        items = mutableListOf<DownloadItemInfo>().apply {
+            bytesList.forEachIndexed { i, b ->
+                add(item("$dirPath/$i", title, b))
+            }
+        },
+    )
+
+    @Test
+    fun `flat applySort DEFAULT keeps original order`() {
+        val list = listOf(
+            flatVideo("2", "bBBB"),
+            flatVideo("1", "AAAA"),
+            flatVideo("3", "cCc"),
+        )
+        // 不管标题是否乱序，DEFAULT 一律保持原顺序，且返回同一实例
+        val fromEmpty = emptyList<DownloadInfo>().applySort(DownloadSortMode.DEFAULT, true)
+        assertTrue(fromEmpty.isEmpty())
+        assertEquals(listOf("2", "1", "3"), list.applySort(DownloadSortMode.DEFAULT, true).map { it.dir_path })
+    }
+
+    @Test
+    fun `flat applySort NAME sorts by pinyin asc and desc`() {
+        val list = listOf(
+            flatVideo("1", "张三"),
+            flatVideo("2", "阿波罗"),
+            flatVideo("3", "李四"),
+        )
+        // 拼音升序：阿(a) < 李(l) < 张(z)
+        val asc = list.applySort(DownloadSortMode.NAME, asc = true)
+        assertEquals(listOf("2", "3", "1"), asc.map { it.dir_path })
+
+        val desc = list.applySort(DownloadSortMode.NAME, asc = false)
+        assertEquals(listOf("1", "3", "2"), desc.map { it.dir_path })
+    }
+
+    @Test
+    fun `flat applySort SIZE sums all parts of a video`() {
+        val list = listOf(
+            flatVideo("a", "A", bytesList = listOf(100L, 100L)), // 200
+            flatVideo("b", "B", bytesList = listOf(50L)),        // 50
+            flatVideo("c", "C", bytesList = listOf(75L, 75L, 75L)), // 225
+        )
+        val asc = list.applySort(DownloadSortMode.SIZE, asc = true)
+        assertEquals(listOf("b", "a", "c"), asc.map { it.dir_path })
+
+        val desc = list.applySort(DownloadSortMode.SIZE, asc = false)
+        assertEquals(listOf("c", "a", "b"), desc.map { it.dir_path })
+    }
+
+    @Test
+    fun `flat applySort SIZE handles empty items as zero`() {
+        val list = listOf(
+            flatVideo("zero", "Z"),
+            video("noitems", "UP甲"), // items 为空
+        )
+        val asc = list.applySort(DownloadSortMode.SIZE, asc = true)
+        // noitems 与 zero 大小均为 0，稳定排序保持原顺序不崩溃
+        assertTrue(asc.any { it.dir_path == "noitems" })
+        assertTrue(asc.any { it.dir_path == "zero" })
+    }
+
+    @Test
+    fun `flat applySort empty list returns empty for all modes`() {
+        assertTrue(emptyList<DownloadInfo>().applySort(DownloadSortMode.NAME, true).isEmpty())
+        assertTrue(emptyList<DownloadInfo>().applySort(DownloadSortMode.SIZE, false).isEmpty())
+    }
 
     @Test
     fun `applySort NAME sorts videos by title in group`() {
