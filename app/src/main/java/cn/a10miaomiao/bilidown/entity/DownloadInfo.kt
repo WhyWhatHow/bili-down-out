@@ -128,6 +128,7 @@ fun List<DownloadGroup>.applySort(
  * - NAME：按标题排序（中文按拼音，与首页一致）；
  * - SIZE：按该视频全部分P总大小排序。
  */
+@JvmName("applySortFlat")
 fun List<DownloadInfo>.applySort(
     mode: DownloadSortMode,
     asc: Boolean,

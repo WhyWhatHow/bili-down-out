@@ -109,6 +109,8 @@ fun OutListPagePresenter(
             biliDownService.reconcileExportedFiles()
         }
         recordList = biliDownService.getRecordList(OutRecord.STATUS_SUCCESS)
+            // 不显示"源未知"（校正补回的 entryDirPath 为空）的记录
+            .filter { it.entryDirPath.isNotBlank() }
         withContext(Dispatchers.IO) {
             recordList = recordList.map { record ->
                 if (record.status == OutRecord.STATUS_SUCCESS) {
