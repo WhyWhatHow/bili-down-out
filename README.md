@@ -12,6 +12,8 @@
 > 一个把哔哩哔哩 APP 离线缓存视频干净导出的工具。
 > 本项目是 [10miaomiao/bili-down-out](https://github.com/10miaomiao/bili-down-out)（哔哩缓存导出）的**增强分支（fork）**，在原版基础上补充了「按 UP 主分组浏览」「多维排序」「导出记录多选」等功能。当前版本 **v1.6.1**。
 
+> **我的动机（简短版）**：我使用上游版本时，遇到“查找视频要等很久、不能多选导出、不能按 UP 主挑选视频”等不便，于是基于此做了一轮增强。完整的来龙去脉见 [docs/MOTIVATION.md](docs/MOTIVATION.md)。
+
 ---
 
 ### 关于本项目
@@ -49,6 +51,19 @@
 ### 下载
 
 - **GitHub Releases**：https://github.com/WhyWhatHow/bili-down-out/releases （打 `v*` 标签会自动触发 CI：跑单测 → 打 debug 包 → 发布到 Release）
+
+---
+
+### 给 AI / 开发者的扩展指引
+
+如果你想基于这份代码**继续往下改**，可以直接把整个仓库（尤其是下面的文档）交给 AI 或开发者作为起点：
+
+- [docs/MOTIVATION.md](docs/MOTIVATION.md) —— 我为什么要做这些更改（动机与背景）
+- [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) —— 这些功能**如何实现**，以及**阅读路线 / 改哪里速查表**
+
+> 一句话给 AI：先读 [README.md](README.md) 建立全局认知 → 读 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) 的“阅读路线”按序看懂代码 → 用“改哪里速查表”定位 → 改完跑 `./gradlew testDebugUnitTest` 验证。本文档与源码即你的全部上下文。
+
+---
 
 ### 与上游的关系
 
