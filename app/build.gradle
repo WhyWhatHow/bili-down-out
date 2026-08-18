@@ -54,6 +54,13 @@ android {
                 signingConfig signingConfigs.release
             }
         }
+        debug {
+            // 有 signing.properties（项目统一 key）时，debug 包也用同一签名，
+            // 保证本地/CI 各环境构建可覆盖升级；无配置时回退 AGP 默认 debug 签名
+            if (signingConfigs.hasProperty('debug')) {
+                signingConfig signingConfigs.debug
+            }
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

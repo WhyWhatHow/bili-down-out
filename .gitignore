@@ -12,5 +12,10 @@ local.properties
 app/signing.properties
 .omo/
 
+# 签名 keystore 不入库（CI 通过 GitHub Secrets 读取）
+keystore/
+*.keystore
+*.jks
+
 # APK 构建产物不入库
 BiliDownOut-*.apk
