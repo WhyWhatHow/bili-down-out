@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import cn.a10miaomiao.bilidown.common.molecule.rememberPresenter
 import cn.a10miaomiao.bilidown.entity.BANGUMI_GROUP_LABEL
 import cn.a10miaomiao.bilidown.entity.DownloadInfo
 import cn.a10miaomiao.bilidown.entity.DownloadItemInfo
+import cn.a10miaomiao.bilidown.entity.DownloadSortMode
 import cn.a10miaomiao.bilidown.entity.DownloadType
 import cn.a10miaomiao.bilidown.entity.buildDownloadInfoList
 import cn.a10miaomiao.bilidown.entity.formatFileSize
