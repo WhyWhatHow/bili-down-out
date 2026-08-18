@@ -18,12 +18,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,8 +39,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import cn.a10miaomiao.bilidown.common.scrollable.ScaffoldNestedScrollConnection
-import cn.a10miaomiao.bilidown.common.scrollable.ScaffoldScrollableState
 import cn.a10miaomiao.bilidown.ui.page.*
 import cn.a10miaomiao.bilidown.ui.theme.BiliDownTheme
 import cn.a10miaomiao.bilimiao.compose.animation.materialFadeThroughIn
@@ -65,15 +61,6 @@ fun MainComposeApp() {
         val currentDestination = navBackStackEntry?.destination
         val enableBottomBar = currentDestination?.hierarchy?.any { i ->
             bottomNavList.indexOfFirst { j -> i.route == j.route } != -1
-        }
-        val scrollableState = remember { ScaffoldScrollableState() }
-        val scrollConnection = remember(scrollableState) {
-            ScaffoldNestedScrollConnection(scrollableState)
-        }
-        LaunchedEffect(currentDestination) {
-            if (enableBottomBar == true) {
-                scrollableState.slideUp()
-            }
         }
         Scaffold(
             topBar = {
@@ -116,9 +103,7 @@ fun MainComposeApp() {
             }
         ) { innerPadding ->
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(scrollConnection)
+                modifier = Modifier.fillMaxSize()
             ) {
                 MainNavHost(
                     navController = navController,
@@ -129,11 +114,12 @@ fun MainComposeApp() {
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
                 ) {
+                    // 底部导航栏固定显示，不随滚动隐藏
                     MainNavigationBar(
                         navController = navController,
                         currentDestination = currentDestination,
                         bottomNavList = bottomNavList,
-                        showBottomBar = enableBottomBar == true && scrollableState.showBottomBar,
+                        showBottomBar = enableBottomBar == true,
                     )
                 }
             }
@@ -185,6 +171,18 @@ fun MainNavHost(
             val packageName = it.arguments?.getString("packageName") ?: ""
             val dirPath = it.arguments?.getString("dirPath") ?: ""
             DownloadDetailPage(navController, packageName, dirPath)
+        }
+
+        defaultComposable(
+            BiliDownScreen.Author.route + "?packageName={packageName}&author={author}",
+            arguments = listOf(
+                navArgument("packageName") { type = NavType.StringType },
+                navArgument("author") { type = NavType.StringType }
+            )
+        ) {
+            val packageName = it.arguments?.getString("packageName") ?: ""
+            val author = it.arguments?.getString("author") ?: ""
+            AuthorPage(navController, packageName, author)
         }
 
         defaultComposable(
