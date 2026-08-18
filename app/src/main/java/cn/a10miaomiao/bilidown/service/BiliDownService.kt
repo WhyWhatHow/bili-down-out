@@ -5,11 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.IBinder
+import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import cn.a10miaomiao.bilidown.BiliDownApp
+import cn.a10miaomiao.bilidown.common.BiliDownOutFile
 import cn.a10miaomiao.bilidown.common.BiliEntryJsonParser
 import cn.a10miaomiao.bilidown.common.CommandUtil
+import cn.a10miaomiao.bilidown.common.MiaoLog
 import cn.a10miaomiao.bilidown.common.file.MiaoDocumentFile
 import cn.a10miaomiao.bilidown.db.AppDatabase
 import cn.a10miaomiao.bilidown.db.dao.OutRecord
@@ -25,6 +28,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
@@ -37,6 +42,8 @@ class BiliDownService :
 
     companion object {
         private const val TAG = "DownloadService"
+        /** deleteSourceVideo 返回值：源缓存目录已不存在 */
+        const val SOURCE_NOT_FOUND = "source_not_found"
         private val channel = Channel<BiliDownService>()
         private var _instance: BiliDownService? = null
 
@@ -97,6 +104,7 @@ class BiliDownService :
     suspend fun exportBiliVideo(
         entryDirPath: String,
         outFile: File,
+        deleteSource: Boolean = false,
     ): Boolean {
         val taskStatus = appState.taskStatus.value
         val shizukuState = appState.shizukuState.value
@@ -122,7 +130,7 @@ class BiliDownService :
             val errorMessage = shizukuUserService.exportBiliVideo(
                 entryDirPath,
                 outFile.path,
-                myProgressCallback,
+                MyProgressCallback(this, appState, deleteSource),
             )
             if (errorMessage != null) {
                 toast(errorMessage)
@@ -133,7 +141,7 @@ class BiliDownService :
 
         // 使用DocumentFile
         if (entryDirPath.startsWith("content:")) {
-            return copyAndExportBiliVideo(entryDirPath, outFile)
+            return copyAndExportBiliVideo(entryDirPath, outFile, deleteSource)
         }
 
         // 使用Java File API正常导出
@@ -166,7 +174,7 @@ class BiliDownService :
                 )
             )
             launch {
-                copyFile(videoFile, outFile)
+                copyFile(videoFile, outFile, deleteSource)
             }
             return true
         }
@@ -203,7 +211,8 @@ class BiliDownService :
             )
             mergerVideos(
                 blvFiles,
-                outFile
+                outFile,
+                deleteSource,
             )
             return true
         } else {
@@ -223,7 +232,7 @@ class BiliDownService :
                     )
                 )
                 launch {
-                    copyFile(videoFile, outFile)
+                    copyFile(videoFile, outFile, deleteSource)
                 }
                 return true
             }
@@ -235,7 +244,7 @@ class BiliDownService :
                     progress = 0f,
                 )
             )
-            mergerVideoAndAudio(videoFile, audioFile, outFile)
+            mergerVideoAndAudio(videoFile, audioFile, outFile, deleteSource)
             return true
         }
     }
@@ -246,6 +255,7 @@ class BiliDownService :
     suspend fun copyAndExportBiliVideo(
         entryDirPath: String,
         outFile: File,
+        deleteSource: Boolean = false,
     ): Boolean {
         val entryDirFile = DocumentFile.fromTreeUri(this, Uri.parse(entryDirPath))!!
         val entryJsonFile = MiaoDocumentFile(this, entryDirFile, "/entry.json")
@@ -275,7 +285,7 @@ class BiliDownService :
                 )
             )
             launch {
-                copyFile(MiaoDocumentFile(this@BiliDownService, videoFile), outFile)
+                copyFile(MiaoDocumentFile(this@BiliDownService, videoFile), outFile, deleteSource)
             }
             return true
         }
@@ -327,7 +337,8 @@ class BiliDownService :
                     )
                     mergerVideos(
                         tempFiles,
-                        outFile
+                        outFile,
+                        deleteSource,
                     )
                 } catch (e: Exception) {
                     appState.putTaskStatus(
@@ -359,7 +370,7 @@ class BiliDownService :
                     )
                 )
                 launch {
-                    copyFile(videoFile, outFile)
+                    copyFile(videoFile, outFile, deleteSource)
                 }
                 return false
             }
@@ -390,7 +401,8 @@ class BiliDownService :
                     mergerVideoAndAudio(
                         tempVideoFile,
                         tempAudioFile,
-                        outFile
+                        outFile,
+                        deleteSource,
                     )
                 } catch (e: Exception) {
                     appState.putTaskStatus(
@@ -408,7 +420,8 @@ class BiliDownService :
 
     private suspend fun copyFile(
         inputFile: File,
-        outFile: File
+        outFile: File,
+        deleteSource: Boolean = false,
     ) {
 
         val fileInputStream = FileInputStream(inputFile)
@@ -428,14 +441,16 @@ class BiliDownService :
             outFile.path,
             outFile.name,
             currentStatus.cover,
-            status = OutRecord.STATUS_SUCCESS
+            status = OutRecord.STATUS_SUCCESS,
+            deleteSource = deleteSource,
         )
         appState.putTaskStatus(TaskStatus.InIdle)
     }
 
     private suspend fun copyFile(
         inputFile: MiaoDocumentFile,
-        outFile: File
+        outFile: File,
+        deleteSource: Boolean = false,
     ) {
         inputFile.copyToTemp(outFile)
         val currentStatus = appState.taskStatus.value
@@ -444,7 +459,8 @@ class BiliDownService :
             outFile.path,
             outFile.name,
             currentStatus.cover,
-            status = OutRecord.STATUS_SUCCESS
+            status = OutRecord.STATUS_SUCCESS,
+            deleteSource = deleteSource,
         )
         appState.putTaskStatus(TaskStatus.InIdle)
     }
@@ -453,6 +469,7 @@ class BiliDownService :
         videoFile: File,
         audioFile: File,
         outFile: File,
+        deleteSource: Boolean = false,
     ) {
         if (!outFile.parentFile!!.exists()) {
             outFile.parentFile!!.mkdir()
@@ -481,7 +498,8 @@ class BiliDownService :
                         outFile.path,
                         outFile.name,
                         currentStatus.cover,
-                        status = OutRecord.STATUS_SUCCESS
+                        status = OutRecord.STATUS_SUCCESS,
+                        deleteSource = deleteSource,
                     )
                 }
                 val tempPath = getTempPath()
@@ -497,6 +515,7 @@ class BiliDownService :
     private fun mergerVideos(
         videoFiles: List<File>,
         outFile: File,
+        deleteSource: Boolean = false,
     ) {
         if (!outFile.parentFile!!.exists()) {
             outFile.parentFile!!.mkdir()
@@ -531,7 +550,8 @@ class BiliDownService :
                         outFile.path,
                         outFile.name,
                         currentStatus.cover,
-                        status = OutRecord.STATUS_SUCCESS
+                        status = OutRecord.STATUS_SUCCESS,
+                        deleteSource = deleteSource,
                     )
                 }
                 val tempPath = getTempPath()
@@ -551,10 +571,12 @@ class BiliDownService :
         cover: String,
         status: Int,
         message: String? = null,
+        deleteSource: Boolean = false,
     ) {
         val outRecordDao = appDatabase.outRecordDao()
         val record = outRecordDao.findByPath(entryDirPath)
         val currentTime = System.currentTimeMillis()
+        val shouldDeleteSource = deleteSource || record?.deleteSource == true
         if (record == null) {
             val newRecord = OutRecord(
                 entryDirPath = entryDirPath,
@@ -563,6 +585,7 @@ class BiliDownService :
                 cover = cover,
                 status = status,
                 type = 1,
+                deleteSource = shouldDeleteSource,
                 createTime = currentTime,
                 updateTime = currentTime,
                 message = message,
@@ -575,10 +598,71 @@ class BiliDownService :
                 title = title,
                 cover = cover,
                 status = status,
+                deleteSource = shouldDeleteSource,
                 message = message,
                 updateTime = currentTime,
             )
             outRecordDao.update(newRecord)
+        }
+        if (status == OutRecord.STATUS_SUCCESS && shouldDeleteSource) {
+            deleteSourceDir(entryDirPath)
+        }
+    }
+
+    /**
+     * 删除哔哩哔哩缓存源目录（三通道：Shizuku / SAF content / Java File）。
+     * @return null=删除成功；[SOURCE_NOT_FOUND]=源已不存在；其他字符串=失败原因
+     */
+    suspend fun deleteSourceVideo(entryDirPath: String): String? {
+        return try {
+            if (appState.shizukuState.value.isEnabled) {
+                when (val error = RemoteServiceUtil.getUserService().deleteBiliVideo(entryDirPath)) {
+                    null -> null
+                    "源文件不存在" -> SOURCE_NOT_FOUND
+                    else -> error
+                }
+            } else if (entryDirPath.startsWith("content:")) {
+                val uri = Uri.parse(entryDirPath)
+                if (DocumentsContract.deleteDocument(contentResolver, uri)) {
+                    null
+                } else {
+                    "删除失败：$entryDirPath"
+                }
+            } else {
+                val dir = File(entryDirPath)
+                when {
+                    !dir.exists() -> SOURCE_NOT_FOUND
+                    dir.deleteRecursively() -> null
+                    else -> "删除失败：$entryDirPath"
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            "删除失败：${e.message}"
+        }
+    }
+
+    /** 检查哔哩哔哩缓存源目录是否仍存在（三通道）。检查异常时保守返回 true，交由删除动作给出准确反馈 */
+    suspend fun sourceVideoExists(entryDirPath: String): Boolean {
+        return try {
+            when {
+                appState.shizukuState.value.isEnabled ->
+                    RemoteServiceUtil.getUserService().fileExists(entryDirPath)
+                entryDirPath.startsWith("content:") ->
+                    DocumentFile.fromSingleUri(this, Uri.parse(entryDirPath))?.exists() == true
+                else -> File(entryDirPath).exists()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            true
+        }
+    }
+
+    private suspend fun deleteSourceDir(entryDirPath: String) {
+        when (val error = deleteSourceVideo(entryDirPath)) {
+            null -> MiaoLog.debug { "已删除源文件：$entryDirPath" }
+            SOURCE_NOT_FOUND -> Unit // 源已不在，静默处理
+            else -> toast("删除源文件失败：$error")
         }
     }
 
@@ -587,11 +671,13 @@ class BiliDownService :
         outFilePath: String,
         title: String,
         cover: String,
+        deleteSource: Boolean = false,
     ) {
         launch {
             putOutRecord(
                 entryDirPath, outFilePath, title, cover,
-                status = OutRecord.STATUS_SUCCESS
+                status = OutRecord.STATUS_SUCCESS,
+                deleteSource = deleteSource,
             )
         }
     }
@@ -604,6 +690,66 @@ class BiliDownService :
         return appDatabase.outRecordDao().getAllByStatus(status)
     }
 
+    /**
+     * 扫描导出目录 Download/BiliDownOut/，将文件存在但数据库无记录的 .mp4 补回记录。
+     * 补回记录的 entryDirPath 为空（源未知），不可参与"删除原视频"操作。
+     * 用于卸载重装/清缓存后恢复已导出文件的管理入口。
+     */
+    suspend fun reconcileExportedFiles(): Int {
+        val outFolder = File(BiliDownOutFile.getOutFolderPath())
+        if (!outFolder.exists()) return 0
+        // 已有记录的所有导出文件路径集合（小写比较，兼容路径大小写差异）
+        val existingPaths = appDatabase.outRecordDao().getAll()
+            .map { it.outFilePath.lowercase() }
+            .toSet()
+        var inserted = 0
+        val currentTime = System.currentTimeMillis()
+        // 遍历 UP 主子目录 + 根目录下的 .mp4 文件
+        val authorDirs = outFolder.listFiles { f -> f.isDirectory }?.toList() ?: emptyList()
+        for (authorDir in authorDirs) {
+            val mp4Files = authorDir.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+                ?: continue
+            for (mp4File in mp4Files) {
+                if (mp4File.path.lowercase() !in existingPaths) {
+                    val record = OutRecord(
+                        entryDirPath = "", // 源未知：无法反查 B 站缓存路径
+                        outFilePath = mp4File.path,
+                        title = mp4File.nameWithoutExtension,
+                        cover = "",
+                        status = OutRecord.STATUS_SUCCESS,
+                        type = 1,
+                        deleteSource = false,
+                        createTime = currentTime,
+                        updateTime = currentTime,
+                    )
+                    appDatabase.outRecordDao().insertAll(record)
+                    inserted++
+                }
+            }
+        }
+        // 也检查根目录下（无 UP 主子目录）的 mp4
+        val rootMp4Files: Array<File> = outFolder.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+            ?: emptyArray()
+        for (mp4File in rootMp4Files) {
+            if (mp4File.path.lowercase() !in existingPaths) {
+                val record = OutRecord(
+                    entryDirPath = "",
+                    outFilePath = mp4File.path,
+                    title = mp4File.nameWithoutExtension,
+                    cover = "",
+                    status = OutRecord.STATUS_SUCCESS,
+                    type = 1,
+                    deleteSource = false,
+                    createTime = currentTime,
+                    updateTime = currentTime,
+                )
+                appDatabase.outRecordDao().insertAll(record)
+                inserted++
+            }
+        }
+        return inserted
+    }
+
     suspend fun getRecordList(paths: Array<String>): List<OutRecord> {
         return appDatabase.outRecordDao().getAllByEntryDirPaths(paths)
     }
@@ -613,7 +759,8 @@ class BiliDownService :
     ) {
         val isSuccess = exportBiliVideo(
             task.entryDirPath,
-            File(task.outFilePath)
+            File(task.outFilePath),
+            task.deleteSource,
         )
         if (isSuccess) {
             putOutRecord(
@@ -631,7 +778,23 @@ class BiliDownService :
         outFilePath: String,
         title: String,
         cover: String,
+        deleteSource: Boolean = false,
     ) {
+        when (tryAddTask(entryDirPath, outFilePath, title, cover, deleteSource)) {
+            1 -> toast("成功创建任务：$title")
+            2 -> toast("该视频已导出：$title")
+            3 -> toast("该视频已在队列中：$title")
+        }
+    }
+
+    /** @return 1=已添加 2=已导出 3=已在队列 */
+    suspend fun tryAddTask(
+        entryDirPath: String,
+        outFilePath: String,
+        title: String,
+        cover: String,
+        deleteSource: Boolean,
+    ): Int {
         val outRecordDao = appDatabase.outRecordDao()
         val record = outRecordDao.findByPath(entryDirPath)
         val currentTime = System.currentTimeMillis()
@@ -643,16 +806,35 @@ class BiliDownService :
                 cover = cover,
                 status = OutRecord.STATUS_WAIT,
                 type = 1,
+                deleteSource = deleteSource,
                 createTime = currentTime,
                 updateTime = currentTime,
             )
             outRecordDao.insertAll(newRecord)
-            toast("成功创建任务：${title}")
-        } else {
-            if (record.status == OutRecord.STATUS_SUCCESS) {
-                toast("该视频已导出：${record.title}")
-            } else {
-                toast("该视频已在队列中：${record.title}")
+            // 当前空闲时主动触发队列（taskStatus 未变化时 StateFlow 不会重新发射）
+            kickQueue()
+            return 1
+        }
+        return if (record.status == OutRecord.STATUS_SUCCESS) 2 else 3
+    }
+
+    private val queueMutex = Mutex()
+
+    /**
+     * 若当前无任务进行中，启动队列中最早的一条等待任务。
+     * 入队后立即调用，避免依赖 taskStatus 变化触发。
+     */
+    private fun kickQueue() {
+        launch {
+            queueMutex.withLock {
+                val status = appState.taskStatus.value
+                if (status is TaskStatus.InIdle || status is TaskStatus.Error) {
+                    val waitRecords = appDatabase.outRecordDao()
+                        .getAllByStatus(OutRecord.STATUS_WAIT)
+                    if (waitRecords.isNotEmpty()) {
+                        startTask(waitRecords.first())
+                    }
+                }
             }
         }
     }
