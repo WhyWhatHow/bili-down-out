@@ -123,6 +123,30 @@ fun List<DownloadGroup>.applySort(
 }
 
 /**
+ * 对扁平的 UP 主页视频列表应用排序（首页是分组列表，此重载用于 UP 主子页）：
+ * - DEFAULT：保持原顺序；
+ * - NAME：按标题排序（中文按拼音，与首页一致）；
+ * - SIZE：按该视频全部分P总大小排序。
+ */
+fun List<DownloadInfo>.applySort(
+    mode: DownloadSortMode,
+    asc: Boolean,
+): List<DownloadInfo> {
+    val collator = java.text.Collator.getInstance(java.util.Locale.CHINA)
+    return when (mode) {
+        DownloadSortMode.DEFAULT -> this
+        DownloadSortMode.NAME -> sortedWith(
+            if (asc) compareBy { collator.getCollationKey(it.title) }
+            else compareByDescending { collator.getCollationKey(it.title) }
+        )
+        DownloadSortMode.SIZE -> sortedWith(
+            if (asc) compareBy { it.items.sumOf { item -> item.total_bytes } }
+            else compareByDescending { it.items.sumOf { item -> item.total_bytes } }
+        )
+    }
+}
+
+/**
  * 将 entry.json 读取结果映射为列表展示用的 DownloadInfo 列表。
  * 同一视频（type + id 相同）的多个分P 会合并到同一个 DownloadInfo 的 items 中。
  * 列表页与 UP 主详情页共用该逻辑，保持分组行为一致。
