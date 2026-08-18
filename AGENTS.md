@@ -40,7 +40,7 @@ export JAVA_HOME=~/.local/share/mise/installs/java/17.0.2
 ## 发布流程（每次成果交付）
 
 1. 确认单测通过、APK 打包成功、版本号已递增。
-2. git 提交所有变更（提交信息用中文，简述改动）。
+2. git 提交所有变更——提交信息**必须由本次改动的实际内容生成**，遵循下方《提交信息规范》。禁止使用“feat: 优化文档和功能”之类与内容无关的占位信息。
 3. 推送到 `origin` 远端（WhyWhatHow/bili-down-out）main 分支。
 4. 打 tag 并推送：`git tag -a v<版本> -m "说明" && git push origin v<版本>`。
 5. CI/CD（`.github/workflows/android.yml`）自动完成：跑单测 → 打 debug 包 → 以 `BiliDownOut-<版本>-debug.apk` 发布到 GitHub Release（tag 信息作为 Release 说明）。
@@ -112,6 +112,20 @@ app/src/main/java/cn/a10miaomiao/bilidown/
 - 长按列表项进入多选；底部浮条"全选/导出选中/退出"。
 - 排序栏：默认/文件名/大小 FilterChip；点击已选中的"文件名/大小"chip 在 升序(↑)->降序(↓) 间循环逆转，方向显示在 chip 文案内（中文用 `Collator(CHINA)` 拼音排序）。
 - 列表项信息行：多P显示"NP · "，状态"已完成/暂停中"，再加总大小；单P不显示数量。
+
+## 提交信息规范（强制）
+
+**原则：每一次 commit，信息都必须由本次暂存的改动内容生成；禁止写与内容无关的占位文案（如“feat: 优化文档和功能”“修改”“优化”等）。**
+
+1. **先看改动再写**：提交前先执行 `git diff --cached --stat` 与 `git diff --cached`，用实际改动的内容写摘要，不要凭记忆或复制粘贴旧文案。
+2. **格式**：`<type>(<scope>): <中文摘要>`，冒号后必须有说明，且与改动对应。
+   - 摘要要点出“做了什么”，如 `feat(ui): 列表支持按 UP 主分组折叠与多维排序`。
+3. **type 取值**：
+   - `feat` 新功能 · `fix` 修 bug · `refactor` 重构不改行为 · `docs` 文档（README / docs / 注释）· `test` 测试 · `perf` 性能 · `chore` 构建/杂务（gradle、CI 等）
+   - scope 可选：`ui` / `entity` / `service` / `common` / `docs` 等，按主要改动目录归类。
+4. **正文（可选但建议）**：空一行后写“为什么”而不是“怎么改”，例如修复动机、踩坑点、取舍。
+5. **原子提交**：一个功能/一个修复一个提交；混有多类改动时用 `git add -p` 分开提交。
+6. **工具兜底**：仓库已配置 `prepare-commit-msg` 钩子（见 `.githooks/`）。当提交信息为空/占位/过短时，它会基于 `git diff --cached` 自动生成一条建议信息。请审阅并在其基础上完善后再提交；确需完全绕开时才能用 `--no-verify`。
 
 ## 单元测试
 
