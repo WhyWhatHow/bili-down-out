@@ -295,11 +295,23 @@ fun DownloadListPagePresenter(
             if (!canRead) {
                 return
             }
+            val appState = (context.applicationContext as BiliDownApp).state
+            // 冷启动缓存优先：先用已持久化的列表秒渲染，避免每次启动全量 SAF 扫描期间
+            // 的空白等待与主线程/底层 IPC 拥堵（SAF 下每个文件操作都是一次 IPC，重复执行会卡顿）。
+            // 数据随后由下方全量扫描校正（按设计允许短暂显示陈旧快照）。
+            if (list.isEmpty()) {
+                appState.downloadListCache[packageName]
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { list = it }
+            }
             loading = true
             failMessage = ""
-            // 扫描阶段：逐个读取缓存分P，实时回报已扫描数（total 未知，显示不确定进度）
+            // 扫描阶段：逐个读取缓存分P。列表已由缓存渲染时不再逐条上报进度，
+            // 避免海量重组导致的滑动卡顿（仅空列表首载时才需要显示不确定进度）。
             val entryList = biliDownFile.readDownloadList { scanned ->
-                loadProgress = ListLoadProgress(total = 0, processed = scanned)
+                if (list.isEmpty()) {
+                    loadProgress = ListLoadProgress(total = 0, processed = scanned)
+                }
             }
             // entry -> DownloadInfo 的映射逻辑与 UP 主详情页共用
             val newList = buildDownloadInfoList(entryList)
@@ -308,7 +320,6 @@ fun DownloadListPagePresenter(
             fillMissingAuthors(entryList, newList, fetchRemote = false, onUpdated = { })
             list = newList.toList()
             // 写入进程内缓存并落盘，UP 主页直接复用，免去重复全量遍历目录
-            val appState = (context.applicationContext as BiliDownApp).state
             appState.downloadListCache[packageName] = list
             appState.saveListCache()
             // 再异步网络补全剩余缺失的 UP 主，避免网络请求阻塞列表展示；
