@@ -143,8 +143,9 @@ fun TaskProgress(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 1.dp,
             ) {
                 Column() {
                     Row(

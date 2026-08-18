@@ -10,13 +10,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +56,8 @@ import java.io.File
 data class OutListPageState(
     val status: TaskStatus,
     val recordList: List<OutRecord>,
+    /** 成功记录的源缓存目录是否仍存在（record.id -> exists），决定是否显示"删除原视频" */
+    val sourceExistsMap: Map<Long, Boolean> = emptyMap(),
 )
 
 
@@ -65,6 +71,16 @@ sealed class OutListPageAction {
     class DeleteRecord(
         val record: OutRecord,
         val isDeleteFile: Boolean,
+    ): OutListPageAction()
+
+    /** 删除该记录对应的哔哩哔哩缓存源目录（不影响已导出文件与记录本身） */
+    class DeleteSourceVideo(
+        val record: OutRecord,
+    ): OutListPageAction()
+
+    /** 批量删除多条记录对应的源缓存目录 */
+    class DeleteSourceVideoBatch(
+        val records: List<OutRecord>,
     ): OutListPageAction()
 }
 
@@ -81,11 +97,21 @@ fun OutListPagePresenter(
     var recordList by remember {
         mutableStateOf(emptyList<OutRecord>())
     }
+    var sourceExistsMap by remember {
+        mutableStateOf(emptyMap<Long, Boolean>())
+    }
 
     suspend fun getRecordList(
         biliDownService: BiliDownService
     ) {
-        recordList = biliDownService.getRecordList(OutRecord.STATUS_SUCCESS)
+        // 先扫描导出目录，把文件存在但无记录的 .mp4 补回数据库（校正记录）
+        withContext(Dispatchers.IO) {
+            biliDownService.reconcileExportedFiles()
+        }
+        recordList = filterOutSourceUnknown(
+            // 源未知（entryDirPath 为空）的校正补回记录不在已导出页展示
+            biliDownService.getRecordList(OutRecord.STATUS_SUCCESS)
+        )
         withContext(Dispatchers.IO) {
             recordList = recordList.map { record ->
                 if (record.status == OutRecord.STATUS_SUCCESS) {
@@ -97,6 +123,13 @@ fun OutListPagePresenter(
                     record
                 }
             }
+            // 预检查成功记录的源缓存是否仍存在，决定是否显示"删除原视频"菜单项
+            // entryDirPath 为空（校正补回的记录）不参与检查，视为源未知
+            sourceExistsMap = recordList.mapNotNull { record ->
+                val id = record.id ?: return@mapNotNull null
+                if (record.entryDirPath.isBlank()) return@mapNotNull null
+                id to biliDownService.sourceVideoExists(record.entryDirPath)
+            }.toMap()
         }
     }
 
@@ -135,12 +168,49 @@ fun OutListPagePresenter(
                 biliDownService.delTask(it.record, it.isDeleteFile)
                 getRecordList(biliDownService)
             }
+            is OutListPageAction.DeleteSourceVideo -> {
+                val biliDownService = BiliDownService.getService(context)
+                val message = when (biliDownService.deleteSourceVideo(it.record.entryDirPath)) {
+                    null -> "已删除原视频：${it.record.title}"
+                    BiliDownService.SOURCE_NOT_FOUND -> "原视频已不存在：${it.record.title}"
+                    else -> "删除原视频失败：${it.record.title}"
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                getRecordList(biliDownService)
+            }
+            is OutListPageAction.DeleteSourceVideoBatch -> {
+                val biliDownService = BiliDownService.getService(context)
+                var deleted = 0
+                var notFound = 0
+                var failed = 0
+                withContext(Dispatchers.IO) {
+                    it.records.forEach { record ->
+                        when (biliDownService.deleteSourceVideo(record.entryDirPath)) {
+                            null -> deleted++
+                            BiliDownService.SOURCE_NOT_FOUND -> notFound++
+                            else -> failed++
+                        }
+                    }
+                }
+                val message = buildString {
+                    append("已删除原视频 $deleted 个")
+                    if (notFound > 0) append("，$notFound 个已不存在")
+                    if (failed > 0) append("，$failed 个删除失败")
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                getRecordList(biliDownService)
+            }
         }
     }
 
     return OutListPageState(
         status = taskStatus,
         recordList = recordList,
+        sourceExistsMap = sourceExistsMap,
     )
 }
 
@@ -195,6 +265,79 @@ internal fun ReconfirmDeleteDialog(
 }
 
 @Composable
+internal fun ReconfirmDeleteSourceDialog(
+    record: OutRecord?,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (record != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = "确认删除原视频？") },
+            text = {
+                Column {
+                    Text("删除：${record.title}")
+                    Text(
+                        color = Color.Red,
+                        text = "将删除哔哩哔哩缓存中的源视频（不可恢复），不影响已导出文件。",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onConfirm()
+                    onDismiss()
+                }) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+internal fun ReconfirmDeleteSourceBatchDialog(
+    show: Boolean,
+    count: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (show) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = "确认批量删除原视频？") },
+            text = {
+                Column {
+                    Text("将删除 $count 个已导出视频的源缓存。")
+                    Text(
+                        color = Color.Red,
+                        text = "删除后不可恢复，不影响已导出的文件。",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onConfirm()
+                    onDismiss()
+                }) {
+                    Text("全部删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+}
+
+@Composable
 fun OutListPage(
     navController: NavHostController,
 ) {
@@ -229,9 +372,125 @@ fun OutListPage(
         },
     )
 
-    LazyColumn(
-        contentPadding = PaddingValues(bottom = 80.dp),
-    ) {
+    var reconfirmDeleteSourceRecord by remember {
+        mutableStateOf<OutRecord?>(null)
+    }
+    ReconfirmDeleteSourceDialog(
+        record = reconfirmDeleteSourceRecord,
+        onDismiss = { reconfirmDeleteSourceRecord = null },
+        onConfirm = {
+            reconfirmDeleteSourceRecord?.let {
+                channel.trySend(OutListPageAction.DeleteSourceVideo(it))
+            }
+        },
+    )
+
+    // 源缓存仍存在的成功记录，可勾选删除原文件
+    val cleanableRecords = cleanableRecords(state.recordList, state.sourceExistsMap)
+    val cleanableIds = cleanableRecords.mapNotNull { it.id }.toSet()
+
+    var selectMode by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateOf(setOf<Long>()) }
+    val selectedRecords = cleanableRecords.filter { it.id in selectedIds.value }
+
+    var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    ReconfirmDeleteSourceBatchDialog(
+        show = showBatchDeleteDialog,
+        count = selectedRecords.size,
+        onDismiss = { showBatchDeleteDialog = false },
+        onConfirm = {
+            if (selectedRecords.isNotEmpty()) {
+                channel.trySend(OutListPageAction.DeleteSourceVideoBatch(selectedRecords))
+            }
+        },
+    )
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(bottom = 8.dp),
+        ) {
+        // 多选操作条：作为列表的一个硬性 item 渲染，必显示（不采用悬浮/叠层，避免被遮挡）。
+        if (selectMode) {
+            item(key = "selection_bar") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "已选 ${selectedRecords.size} 个",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(
+                            onClick = {
+                                selectedIds.value = toggleSelectAll(
+                                    cleanableIds,
+                                    selectedIds.value,
+                                )
+                            },
+                        ) { Text("全选") }
+                        TextButton(
+                            enabled = selectedRecords.isNotEmpty(),
+                            onClick = { showBatchDeleteDialog = true },
+                        ) { Text("删除原视频(${selectedRecords.size})") }
+                        TextButton(
+                            onClick = {
+                                selectMode = false
+                                selectedIds.value = emptySet()
+                            },
+                        ) { Text("退出") }
+                    }
+                }
+            }
+        }
+        if (state.recordList.isNotEmpty() && cleanableRecords.isNotEmpty() && !selectMode) {
+            // 顶部醒目的清理入口：提醒用户部分源视频仍占用缓存，点击进入多选模式自行勾选
+            item(key = "cleanup_hint") {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "有 ${cleanableRecords.size} 个已导出视频的源缓存仍占用空间",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                text = "点击选择要删除原视频的记录（不影响已导出文件）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                        TextButton(onClick = { selectMode = true }) {
+                            Text(
+                                text = "选择",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        }
         if (state.recordList.isEmpty()) {
             item {
                 Column(
@@ -252,20 +511,56 @@ fun OutListPage(
             }
         } else {
             items(state.recordList, { it.id!! }) { item ->
+                val itemId = item.id
+                val cleanable = isCleanableRecord(item, state.sourceExistsMap)
+                fun toggleSelection() {
+                    if (cleanable && itemId != null) {
+                        selectedIds.value =
+                            if (itemId in selectedIds.value) {
+                                selectedIds.value - itemId
+                            } else {
+                                selectedIds.value + itemId
+                            }
+                    }
+                }
+                // 校正补回的记录（entryDirPath 为空）显示"源未知"，不参与源缓存检查
+                val isReconciled = item.entryDirPath.isBlank()
+                // 仅成功导出且源状态已被检查时才显示"源已删除/占用空间"
+                val sourceStatus = if (item.status == OutRecord.STATUS_SUCCESS && itemId != null && !isReconciled) {
+                    state.sourceExistsMap[itemId]?.let { !it }
+                } else {
+                    null
+                }
                 RecordItem(
                     title = item.title,
                     cover = item.cover,
                     status = item.status,
                     onClick = {
-                        channel.trySend(
-                            OutListPageAction.OpenVideo(item)
-                        )
+                        if (selectMode) {
+                            // 多选模式下点击：非源残留的项不可选，可选项切换勾选
+                            toggleSelection()
+                        } else {
+                            channel.trySend(
+                                OutListPageAction.OpenVideo(item)
+                            )
+                        }
                     },
                     onDeleteClick = {
                         reconfirmDeleteDialogAction = OutListPageAction.DeleteRecord(
                             record = item, isDeleteFile = it
                         )
-                    }
+                    },
+                    sourceExists = itemId?.let { state.sourceExistsMap[it] } == true,
+                    sourceDeleted = sourceStatus,
+                    sourceUnknown = isReconciled && item.status == OutRecord.STATUS_SUCCESS,
+                    onDeleteSourceClick = if (!isReconciled) {
+                        { reconfirmDeleteSourceRecord = item }
+                    } else {
+                        null
+                    },
+                    selectMode = selectMode,
+                    selected = itemId != null && itemId in selectedIds.value,
+                    onSelectChange = ::toggleSelection,
                 )
             }
         }
@@ -282,4 +577,5 @@ fun OutListPage(
             }
         }
     }
+}
 }

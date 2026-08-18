@@ -15,6 +15,7 @@ sealed class BiliDownScreen(
     object Progress : BiliDownScreen("progress", "进度", Icons.Filled.DateRange)
     object OutList: BiliDownScreen("out_list", "已导出", Icons.Filled.CheckCircle)
     object Detail : BiliDownScreen("detail", "详情")
+    object Author : BiliDownScreen("author", "UP主")
     object AddApp : BiliDownScreen("add_app", "添加APP信息")
     object About : BiliDownScreen("about", "关于")
 
@@ -27,6 +28,7 @@ sealed class BiliDownScreen(
             "add_app" to "添加APP",
             "about" to "关于",
             "detail" to "哔哩缓存详情",
+            "author" to "UP主视频",
         )
 
         fun getRouteName(route: String?): String {

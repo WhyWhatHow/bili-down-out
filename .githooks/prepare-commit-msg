@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# prepare-commit-msg 钩子
+#
+# 目标：保证"每一次 commit 信息由当前改动内容生成"。
+# 当提交信息为空、仅为占位("feat: 优化文档和功能" 之类)或过短时，
+# 依据 `git diff --cached` 的实际改动，自动生成一条建议信息并写入提交信息文件。
+#
+# 若你已经用 -m 写了具体信息，本钩子不会覆盖。
+# 如需完全跳过：git commit --no-verify。
+set -euo pipefail
+
+msgfile="${1:-}"; sourcetype="${2:-}"
+[ -n "$msgfile" ] || exit 0
+# 合并冲突用信息文件不宜改写
+case "$sourcetype" in merge|squash) exit 0 ;; esac
+
+existing=$(tr -d '\n' < "$msgfile")
+
+# 判定是否"空/占位/过短"，需要重写
+is_placeholder() {
+  local line
+  line=$(printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  [ -z "$line" ] && return 0
+  # 形如 "type(scope):"(只有类型没说明)
+  if [[ "$line" =~ ^[A-Za-z_]+\(?[^:]*\)?:\ *$ ]]; then return 0; fi
+  # 明确占位词
+  case "$line" in
+    *"优化文档和功能"*|*"优化功能"*|*"简述改动"*) return 0 ;;
+  esac
+  # 单词过少
+  local wc
+  wc=$(printf '%s' "$line" | wc -w | tr -d ' ')
+  [ "$wc" -le 1 ] && return 0
+  return 1
+}
+
+is_placeholder "$existing" || exit 0
+
+# 仅处理缓存的改动
+if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
+  CACHED="--cached"
+else
+  CACHED="--cached"
+fi
+
+names=$(git diff --cached --name-only 2>/dev/null || true)
+
+# 只在确有暂存内容时生成，否则不干预
+if [ -z "$names" ]; then exit 0; fi
+
+# ---------- 类型推断 ----------
+type="feat"
+if printf '%s\n' "$names" | grep -qE '(^|/)docs/|/.md$|README|AGENTS'; then type="docs"; fi
+if printf '%s\n' "$names" | grep -q 'app/src/test'; then type="test"; fi
+if git diff --cached 2>/dev/null | grep -qE '^\+.*(Fix|fix|修复|根治|checkpoint|兜底)'; then type="fix"; fi
+
+# ---------- scope 推断 ----------
+scope=""
+if echo "$names" | grep -q 'app/src/main/.*/ui/'; then scope="ui";
+elif echo "$names" | grep -q 'app/src/main/.*/entity/'; then scope="entity";
+elif echo "$names" | grep -q 'app/src/main/.*/service/'; then scope="service";
+elif echo "$names" | grep -q 'app/src/main/.*/common/'; then scope="common";
+elif echo "$names" | grep -qE '(gradle|\.github/|settings|\.toml|proguard)'; then scope="build";
+elif [ "$type" = "docs" ]; then scope="docs"; fi
+
+# ---------- 摘要推断 ----------
+subj=""
+difftext=$(git diff --cached 2>/dev/null || true)
+case "$difftext" in
+  *"groupByAuthor"*|*"DownloadGroup"*|*"BANGUMI_GROUP"*) subj="缓存列表支持按 UP 主分组（含番剧兜底分组）" ;;
+  *"DownloadSortMode"*|*"applySort"*) subj="新增多维排序（默认/名称/大小）" ;;
+  *"OutListPageSelection"*) subj="导出记录支持多选与批量操作" ;;
+esac
+if [ -z "$subj" ]; then
+  # 通用兜底：按编辑器风格列出主要改动文件
+  tops=$(printf '%s\n' "$names" | head -3 | sed 's#.*/##; s#\.[^.]*$##')
+  subj="更新 $(printf '%s、' $tops | sed 's/、$//')"
+fi
+
+prefix="$type"; [ -n "$scope" ] && prefix="$type($scope)"
+{
+  printf '%s: %s\n' "$prefix" "$subj"
+  printf '\n'
+  printf '%s条文件改动：\n' "$(printf '%s\n' "$names" | wc -l | tr -d ' ')"
+  printf '%s\n' "$names" | sed 's/^/- /'
+} > "$msgfile"
+
+exit 0

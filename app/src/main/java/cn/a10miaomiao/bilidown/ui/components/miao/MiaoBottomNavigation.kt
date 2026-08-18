@@ -18,7 +18,7 @@ fun MiaoBottomNavigation(
 ) {
     Row(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
             .height(60.dp),
         content = { content() }
     )

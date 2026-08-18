@@ -10,6 +10,7 @@ import cn.a10miaomiao.bilidown.state.TaskStatus
 class MyProgressCallback(
     val service: BiliDownService,
     val appState: AppState,
+    val deleteSource: Boolean = false,
 ) : ProgressCallback.Stub() {
     override fun onStart(info: VideoOutInfo?) {
         MiaoLog.debug { "onStart(${info})" }
@@ -31,6 +32,7 @@ class MyProgressCallback(
             outFilePath = info?.outFilePath ?: "unknown path",
             title = info?.name ?: "unknown name",
             cover = info?.cover ?: "",
+            deleteSource = deleteSource,
         )
     }
 

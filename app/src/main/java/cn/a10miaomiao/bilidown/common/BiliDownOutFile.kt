@@ -8,6 +8,7 @@ import java.io.File
 
 class BiliDownOutFile(
     name: String,
+    author: String = "",
 ) {
 
     companion object {
@@ -21,13 +22,21 @@ class BiliDownOutFile(
         fun getOutFolderPath(): String {
             return downloadDir.path + File.separator + DIR_NAME
         }
+
+        fun sanitizeFileName(name: String): String {
+            return name.replace(Regex("[\\\\/:*?\"<>|\\s]"), "")
+        }
     }
 
-    private val outDir = File(downloadDir, DIR_NAME)
+    private val outDir = if (author.isBlank()) {
+        File(downloadDir, DIR_NAME)
+    } else {
+        File(File(downloadDir, DIR_NAME), sanitizeFileName(author))
+    }
 
     init {
-        if (!outDir.exists()){
-            outDir.mkdir()
+        if (!outDir.exists()) {
+            outDir.mkdirs()
         }
     }
 
