@@ -205,4 +205,52 @@ class BiliEntryJsonParserTest {
         assertNotNull(result)
         assertEquals("视频标题第一集", result!!.name)
     }
+
+    // regression: author name from owner info
+
+    @Test
+    fun `parseOrNull with owner parses author name`() {
+        val json = """
+            {
+                "is_completed": true,
+                "total_bytes": 1024,
+                "downloaded_bytes": 1024,
+                "title": "UP主分组测试",
+                "cover": "http://example.com/cover.jpg",
+                "prefered_video_quality": 80,
+                "guessed_total_bytes": 1024,
+                "total_time_milli": 60000,
+                "danmaku_count": 100,
+                "owner": {
+                    "mid": 123456,
+                    "name": "测试UP主"
+                }
+            }
+        """.trimIndent()
+
+        val result = BiliEntryJsonParser.parseOrNull(json)
+        assertNotNull(result)
+        assertEquals("测试UP主", result!!.author)
+    }
+
+    @Test
+    fun `parseOrNull without owner returns empty author`() {
+        val json = """
+            {
+                "is_completed": true,
+                "total_bytes": 1024,
+                "downloaded_bytes": 1024,
+                "title": "无UP主测试",
+                "cover": "http://example.com/cover.jpg",
+                "prefered_video_quality": 80,
+                "guessed_total_bytes": 1024,
+                "total_time_milli": 60000,
+                "danmaku_count": 100
+            }
+        """.trimIndent()
+
+        val result = BiliEntryJsonParser.parseOrNull(json)
+        assertNotNull(result)
+        assertEquals("", result!!.author)
+    }
 }
