@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BiliDownOut · UI 重构方案</title>
+<style>
+  /* ============================================================
+     BAOYU-DESIGN 方法：自包含单 HTML ·
+     三套设计语言（清透·沉浸·暖调）· 手机机框 + 完整交互模拟
+     ============================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(1200px 600px at 15% -5%, rgba(120,130,255,.10), transparent 60%),
+      radial-gradient(900px 500px at 90% 0%, rgba(255,120,160,.08), transparent 55%),
+      #0d0e14;
+    color: #f5f5f7;
+    min-height: 100vh;
+    padding: 28px 16px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- 顶部说明 ---------- */
+  .head { max-width: 1080px; margin: 0 auto 22px; }
+  .head h1 { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+  .head p { margin-top: 6px; font-size: 13px; line-height: 1.7; color: #9a9ba8; max-width: 760px; }
+  .head p b { color: #e8e9f1; font-weight: 600; }
+
+  /* ---------- 方案切换条 ---------- */
+  .tabs {
+    max-width: 1080px; margin: 0 auto 26px;
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .tab {
+    flex: 1; min-width: 170px;
+    padding: 14px 16px; border-radius: 16px;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    cursor: pointer; transition: all .2s ease; text-align: left;
+  }
+  .tab:hover { background: rgba(255,255,255,.07); transform: translateY(-1px); }
+  .tab.active { border-color: transparent; background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+  .tab .t-name { font-size: 15px; font-weight: 700; color: #e8e9f1; }
+  .tab.active .t-name { color: #171720; }
+  .tab .t-desc { font-size: 12px; margin-top: 4px; color: #9a9ba8; line-height: 1.5; }
+  .tab.active .t-desc { color: #55555f; }
+  .tab .t-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  .t-dot.a { background: #fb7299; } .t-dot.b { background: #16c79a; } .t-dot.c { background: #e8a13d; }
+
+  /* ---------- 画廊 ---------- */
+  .stage { max-width: 1080px; margin: 0 auto; display: flex; gap: 26px; justify-content: center; flex-wrap: wrap; }
+
+  /* ---------- 手机机框 ---------- */
+  .phone-wrap { display: none; flex-direction: column; align-items: center; }
+  .phone-wrap.active { display: flex; }
+  .phone-label { font-size: 13px; font-weight: 700; margin-bottom: 10px; letter-spacing: .6px; }
+  .phone {
+    width: 360px; height: 720px; border-radius: 38px; overflow: hidden;
+    position: relative; box-shadow: 0 40px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+    background: var(--p-bg);
+    color: var(--p-text);
+    font-size: 14px;
+    display: flex; flex-direction: column;
+  }
+  /* 主题变量 —— 三套设计语言 */
+  .phone.theme-a {
+    --p-bg:#f6f7fb; --p-text:#171820; --p-mut:#81848f; --p-line:rgba(0,0,0,.06);
+    --p-card:#ffffff; --p-accent:#fb7299; --p-accent-soft:rgba(251,114,153,.12);
+    --p-tint:#eef1f9; --p-ok:#22a06b; --p-err:#e5484d;
+    --radius:14px; --bar:#ffffff;
+  }
+  .phone.theme-b {
+    --p-bg:#0e1116; --p-text:#eef1f6; --p-mut:#71767f; --p-line:rgba(255,255,255,.07);
+    --p-card:#161b23; --p-accent:#16c79a; --p-accent-soft:rgba(22,199,154,.14);
+    --p-tint:#1a2028; --p-ok:#3ddc97; --p-err:#ff5c5c;
+    --radius:12px; --bar:#11151c;
+  }
+  .phone.theme-c {
+    --p-bg:#faf4ec; --p-text:#2d2620; --p-mut:#8d8174; --p-line:rgba(0,0,0,.06);
+    --p-card:#fffdf8; --p-accent:#e0750f; --p-accent-soft:rgba(224,117,15,.13);
+    --p-tint:#f2e8da; --p-ok:#4a7c4f; --p-err:#c53b3b;
+    --radius:16px; --bar:#fffaf2;
+  }
+
+  /* 内屏 */
+  .screen { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; position:relative; }
+  .screen::-webkit-scrollbar { display:none; }
+
+  /* 顶部栏 */
+  .top {
+    display:flex; align-items:center; gap:4px; min-height:52px; padding:8px 12px;
+    background: var(--p-bar); border-bottom:1px solid var(--p-line); flex:0 0 auto;
+  }
+  .top .tt { font-size:17px; font-weight:700; flex:1; text-align:center; }
+  .top .icb { width:34px; height:34px; border-radius:10px; border:none; background:transparent; color:var(--p-text); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .top .sp { width:34px; }
+
+  /* 排序 chip */
+  .chip {
+    padding:6px 12px; border-radius:999px; font-size:12px; cursor:pointer; user-select:none;
+    border:1px solid var(--p-line); color:var(--p-mut); background:transparent; transition:all .15s;
+  }
+  .chip.on { background:var(--p-accent); border-color:var(--p-accent); color:#fff; font-weight:600; }
+
+  /* 分组头 */
+  .group-h { display:flex; align-items:center; gap:10px; padding:10px 14px 6px; cursor:pointer; }
+  .avatar {
+    width:38px; height:38px; border-radius:50%; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; color:#fff;
+  }
+  .group-h .meta { flex:1; min-width:0; }
+  .group-h .g-name { font-size:14px; font-weight:700; display:flex; align-items:center; gap:6px; }
+  .group-h .g-sub { font-size:11px; color:var(--p-mut); margin-top:2px; }
+  .arrow { font-size:12px; color:var(--p-mut); transition:transform .2s; }
+  .arrow.open { transform:rotate(90deg); }
+  .group-h .tag { font-size:10px; padding:1px 7px; border-radius:99px; background:var(--p-accent-soft); color:var(--p-accent); }
+
+  /* 视频卡 */
+  .vcard { display:flex; gap:10px; padding:8px 14px; align-items:center; }
+  .vcard .thumb {
+    width:110px; height:66px; border-radius:9px; flex:0 0 auto; object-fit:cover;
+    background:var(--p-tint);
+  }
+  .vcard .vb { flex:1; min-width:0; }
+  .vcard .vt { font-size:13px; line-height:1.4; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .vcard .vm { font-size:11px; color:var(--p-mut); margin-top:4px; display:flex; gap:6px; align-items:center; }
+  .vcard .vm .st-done { color:var(--p-ok); }
+  .vcard .vm .st-pause { color:var(--p-mut); }
+
+  /* 行内操作按钮 */
+  .btn {
+    border:none; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:inherit;
+    background:var(--p-accent); color:#fff; font-weight:600; transition:transform .1s;
+  }
+  .btn:active { transform:scale(.95); }
+  .btn.ghost { background:var(--p-accent-soft); color:var(--p-accent); }
+
+  /* 分隔线 */
+  .sep { height:10px; background:transparent; }
+
+  /* 底部导航条 */
+  .nav {
+    flex:0 0 auto; height:58px; background:var(--p-bar); border-top:1px solid var(--p-line);
+    display:flex; z-index:5;
+  }
+  .nav .ni { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; cursor:pointer; color:var(--p-mut); font-size:10px; }
+  .nav .ni .ico { font-size:19px; line-height:1; }
+  .nav .ni.on { color:var(--p-accent); }
+  .nav .ni.on .dot { width:4px; height:4px; border-radius:50%; background:var(--p-accent); }
+
+  /* 浮条 / 操作条 */
+  .ops {
+    flex:0 0 auto; padding:10px 14px; background:var(--p-card); border-top:1px solid var(--p-line);
+    display:flex; align-items:center; gap:8px;
+  }
+  .ops .cnt { font-size:13px; font-weight:600; flex:1; }
+
+  /* 提示横幅 */
+  .banner { margin:10px 12px; padding:12px 14px; border-radius:var(--radius); background:var(--p-accent-soft); display:flex; align-items:center; gap:10px; }
+  .banner .bt { flex:1; font-size:12.5px; line-height:1.5; }
+  .banner .bt b { font-size:13px; }
+
+  /* 进度条 */
+  .pbar { height:6px; border-radius:99px; background:var(--p-tint); overflow:hidden; position:relative; }
+  .pbar > i { display:block; height:100%; background:var(--p-accent); border-radius:99px; transition:width .3s; }
+  .row-mid { display:flex; align-items:center; gap:8px; }
+
+  /* 大空态 */
+  .empty { text-align:center; padding:70px 20px; color:var(--p-mut); }
+  .empty .e-ico { font-size:56px; opacity:.35; }
+
+  /* 复选框 */
+  .cb { width:22px; height:22px; border-radius:7px; border:1.5px solid var(--p-mut); cursor:pointer; flex:0 0 auto; display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; }
+  .cb.on { background:var(--p-accent); border-color:var(--p-accent); }
+
+  /* ⋮ 下拉 */
+  .menu-wrap { position:relative; }
+  .menu {
+    position:absolute; right:0; top:26px; background:var(--p-card); border:1px solid var(--p-line);
+    border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:20; min-width:130px; overflow:hidden;
+  }
+  .menu .mi { padding:10px 14px; font-size:13px; cursor:pointer; }
+  .menu .mi:hover { background:var(--p-tint); }
+  .menu .mi.danger { color:var(--p-err); }
+
+  /* 弹窗/抽屉 */
+  .overlay { position:absolute; inset:0; background:rgba(0,0,0,.4); z-index:30; display:flex; align-items:center; justify-content:center; }
+  .dialog { background:var(--p-card); border-radius:var(--radius); padding:18px; width:82%; color:var(--p-text); box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .dialog .dlg-t { font-size:15px; font-weight:700; margin-bottom:10px; }
+  .dialog .dlg-b { font-size:13px; color:var(--p-mut); line-height:1.6; }
+  .dlg-row { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .fld { width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--p-line); background:var(--p-bg); color:var(--p-text); font-size:13px; margin-top:10px; }
+
+  /* 子页头 */
+  .sub-head { display:flex; align-items:center; gap:14px; padding:14px 16px 8px; }
+  .sub-head .avatar { width:52px; height:52px; font-size:20px; }
+
+  /* 报销：源状态标签 */
+  .badge { font-size:10.5px; padding:2px 7px; border-radius:99px; }
+  .badge.ok { color:var(--p-mut); background:transparent; }
+  .badge.occ { color:var(--p-err); background:rgba(229,72,77,.1); }
+  .badge.unk { color:var(--p-mut); background:var(--p-tint); }
+  .badge.pri { color:var(--p-accent); background:var(--p-accent-soft); }
+
+  /* 列表行 + 交互按钮 */
+  .iconb { border:none; background:transparent; color:var(--p-mut); font-size:18px; cursor:pointer; width:28px; height:28px; border-radius:8px; }
+  .iconb:hover { color:var(--p-text); }
+
+  /* 切换开关 */
+  .switch { width:46px; height:26px; border-radius:99px; background:var(--p-tint); position:relative; cursor:pointer; border:1px solid var(--p-line); flex:0 0 auto; }
+  .switch::after { content:""; position:absolute; width:20px; height:20px; border-radius:50%; top:2px; left:2px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+  .switch.on { background:var(--p-accent); }
+  .switch.on::after { left:22px; }
+
+  .sett-item { display:flex; align-items:center; gap:12px; padding:14px 16px; background:var(--p-card); border-bottom:1px solid var(--p-line); }
+  .sett-item .si { flex:1; }
+  .sett-item .si-t { font-size:14px; font-weight:600; }
+  .sett-item .si-d { font-size:12px; color:var(--p-mut); margin-top:2px; line-height:1.5; }
+
+  footer { text-align:center; margin-top:40px; font-size:12px; color:#5f6070; }
+  footer a { color:#8a8ca0; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>BiliDownOut · UI 重构候选方案</h1>
+  <p>按 <b>baoyu-design</b> 方法产出的移动端高保真原型，<b>三套设计语言</b>共用同一套真实操作逻辑，均可点击模拟：底部 4 栏导航、UP 分组展开、排序循环、长按多选批量导出、详情导出重命名、已导出页源文件状态 / 多选批删、设置开关。<b>切换上方方案标签即可预览。</b></p>
+</div>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-theme="a">
+    <span class="t-dot a"></span><span class="t-name">方案 A · 清透粉</span>
+    <div class="t-desc">贴近 B 站气质的浅色原生感，卡片圆润、强调色粉，简洁干净</div>
+  </div>
+  <div class="tab" data-theme="b">
+    <span class="t-dot b"></span><span class="t-name">方案 B · 碳黑沉浸</span>
+    <div class="t-desc">影院级深色，高对比、薄荷强调，适合视频/本地观影场景</div>
+  </div>
+  <div class="tab" data-theme="c">
+    <span class="t-dot c"></span><span class="t-name">方案 C · 奶油暖调</span>
+    <div class="t-desc">柔和暖色纸感，圆角更大、亲和友好，缓解浏览长列表疲劳</div>
+  </div>
+</div>
+
+<div class="stage" id="stage">
+  <div class="phone-wrap active"><div class="phone theme-a" id="ph-a"></div></div>
+  <div class="phone-wrap"><div class="phone theme-b" id="ph-b"></div></div>
+  <div class="phone-wrap"><div class="phone theme-c" id="ph-c"></div></div>
+</div>
+
+<footer>BiliDownOut · UI 交互原型 · 自包含 HTML · 方案仅供选择参考</footer>
+
+<script>
+/* ================= 模拟数据 ================= */
+const GROUPS = [
+  { author:"张三", face:"#fb7299", videos:32, size:"2.1 GB", items:[
+    { t:"【深度评测】旗舰手机对比：续航、摄像、性能实测", p:2, mb:"266 MB", s:"done", c:0 },
+    { t:"聊聊 AI 这两年：被误解与被高估", p:1, mb:"188 MB", s:"done", c:1 },
+  ]},
+  { author:"艾晴", face:"#16c79a", videos:18, size:"900 MB", items:[
+    { t:"环球旅行 vlog｜冰岛环岛公路自驾", p:3, mb:"366 MB", s:"pause", c:2 },
+    { t:"一个人的周末｜认真生活的一天", p:1, mb:"122 MB", s:"done", c:0 },
+  ]},
+  { author:"干饭小海", face:"#e0750f", videos:7, size:"366 MB", items:[
+    { t:"在家复刻街边炒粉，锅气十足", p:1, mb:"88 MB", s:"done", c:3 },
+  ]},
+  { author:"番剧·影视", face:"#5b8def", videos:5, size:"1.2 GB", items:[
+    { t:"某年某月某一天（纪录片）", p:4, mb:"430 MB", s:"done", c:1 },
+  ]},
+];
+const COVERS = [
+  "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=video%20thumbnail%2C%20modern%20tech%20gadget%20review%2C%20product%20photography%2C%20clean%20studio%20lighting%2C%20bilibili%20style&image_size=landscape_4_3",
+  "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=video%20thumbnail%2C%20northern%20iceland%20road%20trip%2C%20aurora%20night%20sky%2C%20cinematic%20vlog&image_size=landscape_4_3",
+  "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=food%20video%20thumbnail%2C%20wok%20stir%20fry%20street%20noodles%2C%20steam%2C%20appetizing%20close%20up%2C%20warm%20light&image_size=landscape_4_3",
+  "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=video%20thumbnail%2C%20documentary%20filmmaking%2C%20film%20camera%20silhouette%2C%20moody%20cinematic%20tone&image_size=landscape_4_3",
+];
+/* 已导出记录：has record + source 状态 + isCleanable */
+const OUTS = [
+  { t:"【深度评测】旗舰手机对比：续航、摄像、性能实测", src:"occ", clean:true },
+  { t:"环球旅行 vlog｜冰岛环岛公路自驾", src:"del", clean:false },
+  { t:"在家复刻街边炒粉，锅气十足", src:"unk", clean:false },
+  { t:"某年某月某一天（纪录片）", src:"occ", clean:true },
+  { t:"正片：灯塔（第3话）", src:"occ", clean:true },
+];
+
+/* ================= 手机实例 ================= */
+function Phone(root, theme) {
+  const S = {
+    inner: false,        // 是否处于多选
+    sel: [],             // 已选 dirPath keys
+    sort: "default", sortAsc: true,
+    folders: {},         // author -> open?
+    screen: "home",      // home | queue | out | more | author | detail
+    author: "",
+    detail: null,
+    about: false,
+    status: { total:166, proc:120, remain:46 },  // 补全进度
+    loading: null,       // "scan" | {proc,total}
+    outSel: [], outInner:false,
+    showFolderDlg:false, fileName:null, delMenu:null, confirm:null,
+    settings:{ shizuku:true, delSrc:false },
+  };
+  GROUPS.forEach(g=>S.folders[g.author]=false);
+
+  root.innerHTML = "";
+  const top = document.createElement("div"); top.className="top";
+  const screen = document.createElement("div"); screen.className="screen";
+  const nav = document.createElement("div"); nav.className="nav";
+  // 操作条容器（用于多选）
+  const ops = document.createElement("div"); ops.className="ops"; ops.style.display="none";
+  root.append(top, screen, ops, nav);
+
+  function setTop(back, title, right){
+    top.innerHTML="";
+    const b=document.createElement("button"); b.className="icb"; b.textContent="‹";
+    b.onclick=back;
+    const t=document.createElement("div"); t.className="tt"; t.textContent=title;
+    const r=right||document.createElement("button"); if(r) r.className=r.className||"icb sp";
+    top.append(b,t,r||el("button","sp",""));
+  }
+  const el=(cls,txt)=>{const d=document.createElement("div");d.className=cls;d.textContent=txt;return d;};
+
+  const NAVS=[
+    {k:"home",n:"首页",ico:"▦",label:"下载"},
+    {k:"queue",n:"队列",ico:"⏳",label:"队列"},
+    {k:"out",n:"已导出",ico:"▤",label:"已导出"},
+    {k:"more",n:"更多",ico:"⚙",label:"更多"},
+  ];
+
+  function avatar(name,face){ return `<div class="avatar" style="background:${face}">${name.slice(0,1)}</div>`; }
+  function badge(st){
+    const M={occ:["occ","源占用空间"],del:["ok","源已删除"],unk:["unk","源未知"]}[st]||["ok","源占用空间"];
+    return `<span class="badge ${M[0]}">${M[1]}</span>`;
+  }
+  function fmtSize(mb){ return mb>=1024 ? (mb/1024).toFixed(1)+" GB" : mb+" MB"; }
+  function thumb(c){ return `<img class="thumb" src="${COVERS[c]}" loading="lazy">`; }
+
+  function card(it, k, modeSel){
+    const inSel=S.sel.includes(k);
+    return `
+    <div class="vcard" data-k="${k}">
+      ${modeSel?`<div class="cb ${inSel?'on':''}" data-act="togsel" data-k="${k}">${inSel?'✓':''}</div>`:""}
+      ${thumb(it.c)}
+      <div class="vb">
+        <div class="vt">${it.t}</div>
+        <div class="vm">
+          ${it.p>1?`<span>${it.p}P</span>`:""}
+          <span class="${it.s==='done'?'st-done':'st-pause'}">${it.s==='done'?'已完成':'暂停中'}</span>
+          <span>${fmtSize(parseInt(it.mb))}</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderScreen(){
+    const Sd=screen;
+    Sd.innerHTML="";
+    if(S.screen==="home"){ renderHome(Sd); setTop(null,"哔哩下载","＋"); }
+    else if(S.screen==="author"){ renderAuthor(Sd); setTop(()=>{S.screen="home";render();},"",null); }
+    else if(S.screen==="detail"){ renderDetail(Sd); setTop(()=>{S.screen="author";render();},"",null); }
+    else if(S.screen==="queue"){ renderQueue(Sd); setTop(null,"导出队列",""); }
+    else if(S.screen==="out"){ renderOut(Sd); setTop(null,"已导出",""); }
+    else if(S.screen==="more"){ renderMore(Sd); setTop(null,"更多",""); }
+    renderNav();
+    renderOps();
+    renderChrome();
+  }
+
+  function renderNav(){
+    nav.innerHTML="";
+    NAVS.forEach(nv=>{
+      const d=document.createElement("div"); d.className="ni"+(S.screen===nv.k?" on":"");
+      d.innerHTML=`<span class="ico">${nv.ico}</span><span>${nv.label}</span><span class="dot"></span>`;
+      d.onclick=()=>{ if(S.inner||S.outInner){S.inner=false;S.outInner=false;S.sel=[];S.outSel=[];} S.screen=nv.k; render();};
+      nav.append(d);
+    });
+  }
+
+  function renderOps(){
+    const mode = S.screen==="out" ? S.outInner : S.inner;
+    if(!mode || (S.screen!=="out" && S.screen!=="home" && S.screen!=="author")){ ops.style.display="none"; return; }
+    ops.style.display="flex"; ops.innerHTML="";
+    if(S.screen==="out"){
+      const n=S.outSel.length;
+      const cnt=document.createElement("div"); cnt.className="cnt"; cnt.textContent=`已选 ${n} 个`;
+      ops.append(cnt);
+      ops.append(chipBtn("全选",()=>{ S.outSel = S.outSel.length===ALL_CLEANABLE().length?[]:ALL_CLEANABLE(); render(); }));
+      ops.append(chipBtn(`删除原视频(${n})`,()=>{ if(n>0) ask(`确认批量删除原视频？`,`将删除 ${n} 个源缓存（不可恢复），不影响已导出文件。`,()=>{ delSources(); }); }));
+      ops.append(chipBtn("退出",()=>{ S.outInner=false;S.outSel=[]; render(); }));
+    } else {
+      const n=S.sel.length;
+      const cnt=document.createElement("div"); cnt.className="cnt"; cnt.textContent=`已选 ${n} 个视频`;
+      ops.append(cnt);
+      ops.append(chipBtn("全选",()=>{ S.sel = S.sel.length===ALL_KEYS().length&&S.sel.length>0?[]:ALL_KEYS(); render(); }));
+      ops.append(chipBtn("导出选中",()=>{ if(n>0){ S.inner=false;S.sel=[]; toast(); } }));
+      ops.append(chipBtn("退出",()=>{ S.inner=false;S.sel=[]; render(); }));
+    }
+  }
+  function chipBtn(t,fn){ const b=el("btn",t); b.style.background="var(--p-accent-soft)"; b.style.color="var(--p-accent)"; b.onclick=fn; return b; }
+
+  function toast(msg="已加入导出队列"){ }
+  const ALL_CLEANABLE=()=>OUTS.filter(o=>o.clean).map(o=>o.title);
+  const ALL_KEYS=()=>{ const ks=[]; GROUPS.forEach(g=>g.items.forEach(it=>ks.push(g.author+"|"+it.t))); return ks; };
+
+  /* ---------- 首页 ---------- */
+  function renderHome(Sd){
+    // 补全 UP 进度条（模拟 120/166）
+    Sd.innerHTML+=`
+      <div class="row-mid" style="padding:10px 14px 2px">
+        <div class="pbar" style="flex:1"><i style="width:${Math.round(120/166*100)}%"></i></div>
+        <span style="font-size:11px;color:var(--p-mut)">补全UP 120/166 · 未 46</span>
+      </div>`;
+    // 排序栏
+    const chips=[
+      ["default","默认"],["name",S.sort==="name"?(S.sortAsc?"文件名 ↑":"文件名 ↓"):"文件名"],["size",S.sort==="size"?(S.sortAsc?"大小 ↑":"大小 ↓"):"大小"]
+    ];
+    const bar=document.createElement("div"); bar.style.cssText="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap";
+    chips.forEach(([k,txt])=>{
+      const c=document.createElement("div"); c.className="chip"+(S.sort===k?" on":"");
+      c.textContent=txt;
+      c.onclick=()=>{ if(S.sort===k && (k==="name"||k==="size")){ S.sortAsc=!S.sortAsc;} else {S.sort=k;S.sortAsc=true;} render(); };
+      bar.append(c);
+    });
+    Sd.append(bar);
+
+    GROUPS.forEach(g=>{
+      const head=document.createElement("div"); head.className="group-h";
+      head.innerHTML=`${avatar(g.author,g.face)}
+        <div class="meta">
+          <div class="g-name">${g.author}<span class="tag">${g.videos}个</span></div>
+          <div class="g-sub">${g.videos}个视频 · ${g.size}</div>
+        </div>
+        <span class="arrow ${S.folders[g.author]?'open':''}">›</span>`;
+      head.onclick=(e)=>{
+        if (e.target.closest("."+"cb")) return;
+        S.folders[g.author]=!S.folders[g.author]; render();
+      };
+      Sd.append(head);
+      if(S.folders[g.author]){
+        const body=document.createElement("div"); body.style.cssText="border-bottom:1px solid var(--p-line);padding-bottom:2px";
+        g.items.forEach(it=>{
+          const k=g.author+"|"+it.t;
+          const d=document.createElement("div");
+          d.innerHTML=card(it,k,S.inner);
+          d.querySelector(".vcard").style.cursor="pointer";
+          d.querySelector(".vcard").onclick=(e)=>{ if(e.target.closest(".cb"))return;
+            if(S.inner){ togSel(k); } else { S.detail=it; S.screen="detail"; render(); } };
+          d.querySelector(".vcard").oncontextmenu=(e)=>{ e.preventDefault(); S.inner=true; if(!S.sel.includes(k))S.sel.push(k); render(); };
+          body.append(d);
+        });
+        Sd.append(body);
+      }
+    });
+  }
+
+  /* ---------- UP 子页 ---------- */
+  function renderAuthor(Sd){
+    Sd.innerHTML+=`<div class="sub-head">${avatar(S.author,"#fb7299")}<div><div style="font-size:17px;font-weight:700">${S.author}</div><div style="font-size:12px;color:var(--p-mut)">N个视频 · 总大小</div></div></div>`;
+    const g=GROUPS.find(x=>x.author===S.author)||GROUPS[0];
+    g.items.forEach(it=>{
+      const k=g.author+"|"+it.t;
+      const d=document.createElement("div");
+      d.innerHTML=card(it,k,S.inner);
+      d.querySelector(".vcard").onclick=()=>{ if(S.inner){togSel(k);} else {S.detail=it;S.screen="detail";render();} };
+      d.querySelector(".vcard").oncontextmenu=e=>{e.preventDefault();S.inner=true;if(!S.sel.includes(k))S.sel.push(k);render();};
+      Sd.append(d);
+    });
+  }
+
+  /* ---------- 详情 ---------- */
+  function renderDetail(Sd){
+    const it=S.detail;
+    Sd.innerHTML+=`${thumb(it.c)}`;
+    Sd.innerHTML+=`<div style="padding:12px 14px"><div style="font-weight:700;font-size:15px">${it.t}</div><div style="font-size:12px;color:var(--p-mut);margin-top:4px">共 ${it.p} 个分P · ${fmtSize(parseInt(it.mb))}</div></div>`;
+    for(let i=1;i<=it.p;i++){
+      const r=document.createElement("div"); r.style.cssText="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--p-line)";
+      r.innerHTML=`<span style="color:var(--p-mut);font-size:12px">P${i}</span><div style="flex:1;font-size:13px">${it.t.slice(0,14)}（P${i}）</div><span class="badge ok">已导出</span>`;
+      const b=el("btn","导出"); b.onclick=()=>{ S.fileName=it.t; render(); };
+      r.append(b);
+      Sd.append(r);
+    }
+  }
+
+  /* ---------- 队列 ---------- */
+  function renderQueue(Sd){
+    Sd.innerHTML+=`<div style="padding:12px 14px 6px;font-size:13px;font-weight:700">正在进行</div>`;
+    Sd.innerHTML+=`
+      <div style="background:var(--p-card);margin:0 12px;padding:12px;border-radius:var(--radius)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">环球旅行 vlog｜冰岛环岛公路自驾</div>
+        <div class="row-mid"><div class="pbar" style="flex:1"><i style="width:62%"></i></div><span style="font-size:11px;color:var(--p-mut)">62%</span></div>
+        <div style="font-size:11px;color:var(--p-mut);margin-top:6px">正在合并音视频流…</div>
+      </div>`;
+    const waits=["【深度评测】旗舰手机对比","在家复刻街边炒粉","某年某月某一天（纪录片）"];
+    Sd.innerHTML+=`<div style="padding:14px 14px 6px;font-size:13px;font-weight:700">导出队列</div>`;
+    waits.forEach(w=>{
+      const r=document.createElement("div"); r.style.cssText="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--p-card);border-top:1px solid var(--p-line)";
+      r.innerHTML=`<img class="thumb" src="${COVERS[0]}" style="width:72px;height:44px"><div style="flex:1;font-size:13px">${w}</div><span class="badge pri">队列中</span>`;
+      const ic=el("iconb","⋮");
+      const mw=document.createElement("div"); mw.className="menu-wrap"; mw.append(ic);
+      ic.onclick=()=>{ const m=document.createElement("div"); m.className="menu";
+        m.innerHTML=`<div class="mi danger">移除任务</div>`; m.querySelector(".mi").onclick=()=>{m.remove();};
+        mw.append(m); }; mw.style.position="relative";
+      r.append(mw); Sd.append(r);
+    });
+    Sd.innerHTML+=`<div class="empty"><div class="e-ico">▥</div><div>导出队列展示待执行任务</div></div>`;
+  }
+
+  /* ---------- 已导出 ---------- */
+  function renderOut(Sd){
+    const clean=ALL_CLEANABLE();
+    // 清理提示横幅
+    if(!S.outInner && clean.length){ 
+      const b=document.createElement("div"); b.className="banner";
+      b.innerHTML=`<div class="bt"><b>${clean.length} 个已导出视频的源缓存仍占用空间</b><br>点击选择要删除原视频的记录（不影响已导出文件）</div>`;
+      const go=el("btn","选择"); go.onclick=()=>{ S.outInner=true; render(); };
+      b.append(go); Sd.append(b);
+    }
+    // 多选操作条：作为列表首 item 硬性显示
+    if(S.outInner){
+      const bar=document.createElement("div"); bar.style.cssText="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--p-accent-soft);margin:4px 12px 6px;border-radius:var(--radius)";
+      bar.innerHTML=`<span style="flex:1;font-weight:700;font-size:13px">已选 ${S.outSel.length} 个</span>`;
+      const all=el("btn","全选"); all.style.background="none";all.style.color="var(--p-text)";
+      all.onclick=()=>{ S.outSel=S.outSel.length===clean.length?[]:clean; render(); };
+      const go=el("btn","删除原视频("+S.outSel.length+")"); go.onclick=()=>{ if(S.outSel.length>0) ask("确认批量删除原视频？",`将删除 ${S.outSel.length} 个源缓存，不影响已导出文件。`,()=>delSources()); };
+      const ex=el("btn","退出"); ex.style.background="none";ex.style.color="var(--p-text)";
+      ex.onclick=()=>{S.outInner=false;S.outSel=[];render();};
+      bar.append(all,go,ex); Sd.append(bar);
+    }
+    OUTS.forEach(o=>{
+      const sel=S.outSel.includes(o.title);
+      const r=document.createElement("div"); r.style.cssText="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--p-line)";
+      if(S.outInner) r.innerHTML+=`<div class="cb ${sel?'on':''}" ${o.clean?'':'style="opacity:.3;pointer-events:none"'}>${sel?'✓':''}</div>`;
+      r.innerHTML+=`<img class="thumb" src="${COVERS[1]}" style="width:78px;height:48px">`;
+      r.innerHTML+=`<div style="flex:1;min-width:0"><div style="font-size:13px;line-height:1.4;overflow:hidden">${o.t}</div><div style="font-size:11px;color:var(--p-mut);margin-top:3px;display:flex;gap:6px;align-items:center;white-space:nowrap"><span>${o.status? "" : ""}</span><span style="font-size:11px">已导出</span>${badge(o.src)}</div></div>`;
+      // 详情 ⋮ 菜单
+      const ic=el("iconb","⋮");
+      ic.onclick=()=>{ const m=document.createElement("div"); m.className="menu";
+        let h=`<div class="mi">打开视频</div>`;
+        if(o.clean) h+=`<div class="mi danger">删除原视频</div>`;
+        h+=`<div class="mi">删除记录</div><div class="mi">删除记录及文件</div>`;
+        m.innerHTML=h;
+        m.querySelectorAll(".mi").forEach((mi,ix)=>{ mi.onclick=()=>{ m.remove(); if(ix===1){ ask("确认删除原视频？",`将删除哔哩缓存中的源视频（不可恢复），不影响已导出文件。`,()=>{ o.clean=false;o.src="del"; if(S.outSel.includes(o.title))S.outSel=S.outSel.filter(x=>x!==o.title); render(); }); } }; });
+        r.append(m); m.style.position="absolute"; r.style.position="relative"; };
+      r.append(ic);
+      r.querySelector(".cb")?.addEventListener("click",()=>{ if(!o.clean)return; S.outSel=sel?S.outSel.filter(x=>x!==o.title):[...S.outSel,o.title]; render(); });
+      if(S.outInner) r.querySelectorAll(".cb,.thumb,.iconb").forEach(n=>n.style.pointerEvents="auto");
+      Sd.append(r);
+    });
+    const fd=document.createElement("div"); fd.style.textAlign="center"; fd.style.padding="10px";
+    const fb=el("btn","导出文件夹在哪？"); fb.style.background="none";fb.style.color="var(--p-mut)";
+    fb.onclick=()=>{ ask("导出文件夹",`位置：Download / BiliDownOut / UP主 /`,()=>{}); };
+    fd.append(fb); Sd.append(fd);
+  }
+  function delSources(){
+    const n=S.outSel.length; S.outSel.forEach(t=>{ const o=OUTS.find(x=>x.title===t); if(o){o.clean=false;o.src="del";} });
+    S.outSel=[]; S.outInner=false; render(); 
+    toastMsg(`已删除原视频 ${n} 个`);
+  }
+
+  /* ---------- 更多 ---------- */
+  function renderMore(Sd){
+    const items=[
+      ["Shizuku", S.settings.shizuku?"已运行 — 可访问下载缓存":"未运行/未授权", {k:"shizuku"}],
+      ["导出后删除源文件", S.settings.delSrc?"已开启：导出成功后自动删除哔哩缓存（不可恢复）":"已关闭：导出后保留哔哩缓存", {k:"delSrc"}],
+      ["关于", "当前版本：v1.5.4", {about:true}],
+    ];
+    items.forEach(li=>{
+      const r=document.createElement("div"); r.className="sett-item";
+      r.innerHTML=`<div class="si"><div class="si-t">${li[0]}</div><div class="si-d">${li[1]}</div></div>`;
+      if(li[2].about){ const b=el("iconb","›"); b.onclick=()=>{ ask("关于","BiliDownOut · 将 B 站离线缓存合并导出为 MP4，按 UP 主归档。",()=>{}); }; r.append(b); }
+      else { const sw=document.createElement("div"); sw.className="switch"+(S.settings[li[2].k]?" on":""); sw.onclick=()=>{ S.settings[li[2].k]=!S.settings[li[2].k]; render(); }; r.append(sw); }
+      Sd.append(r);
+    });
+  }
+
+  /* ---------- 文件重命名抽屉 / 确认弹窗 ---------- */
+  function ask(title, body, yes){ renderChrome({dlg:{title:title, body:body, yes: yes||null}}); }
+  function toastMsg(msg){ renderChrome({toast:msg}); }
+
+  function renderChrome({dlg=null,toast=null}={}){
+    // 文件重命名
+    if(S.fileName!=null){ dlg = dlg || {title:"导出", body:"", field:S.fileName}; }
+    // 清理旧 chrome
+    root.querySelectorAll(".overlay,.toastit,.filetoast").forEach(n=>n.remove());
+    if(dlg){
+      const ov=document.createElement("div"); ov.className="overlay";
+      const d=document.createElement("div"); d.className="dialog";
+      let hasField=false;
+      if(S.fileName!=null){
+        hasField=true;
+        const t=document.createElement("div"); t.className="dlg-t"; t.textContent="重命名导出文件";
+        const fld=document.createElement("input"); fld.className="fld"; fld.value=S.fileName;
+        const hint=document.createElement("div"); hint.style.cssText="font-size:11px;color:var(--p-mut);margin-top:6px"; hint.textContent="自动去除空格与 / \\ : * ? \" < > | 等非法字符";
+        fld.oninput=()=>{ hint.textContent=fld.value.trim()?"自动清洗后："+fld.value.replace(/[\\/:*?"<>|\s]/g,"") : "文件名不能为空"; };
+        const row=document.createElement("div"); row.className="dlg-row";
+        const cancel=el("btn","取消"); cancel.style.background="var(--p-tint)";cancel.style.color="var(--p-text)";
+        cancel.onclick=()=>{S.fileName=null;render();};
+        const ok=el("btn","确定导出"); ok.onclick=()=>{ if(fld.value.trim()){S.fileName=null;toastMsg("已加入导出队列");} };
+        row.append(cancel,ok);
+        d.append(t,fld,hint,row);
+      } else {
+        const t=document.createElement("div"); t.className="dlg-t"; t.textContent=dlg.title;
+        const b=document.createElement("div"); b.className="dlg-b"; b.innerHTML=dlg.body;
+        const row=document.createElement("div"); row.className="dlg-row";
+        const cancel=el("btn","取消"); cancel.style.background="var(--p-tint)";cancel.style.color="var(--p-text)";
+        cancel.onclick=()=>render();
+        const ok=el("btn","确定"); ok.onclick=()=>{ dlg.yes&&dlg.yes(); render(); };
+        row.append(cancel,ok);
+        d.append(t,b,row);
+      }
+      ov.append(d); ov.onclick=e=>{ if(e.target===ov) render(); };
+      root.append(ov);
+    }
+    if(toast){ const t=document.createElement("div"); t.className="toastit"; t.style.cssText="position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:var(--p-text);color:var(--p-bg);padding:9px 16px;border-radius:99px;font-size:12px;z-index:40"; t.textContent=toast; root.append(t); setTimeout(()=>t.remove(),1800); }
+  }
+
+  function togSel(k){
+    S.sel = S.sel.includes(k)? S.sel.filter(x=>x!==k):[...S.sel,k];
+    render();
+  }
+
+  function render(){ renderScreen(); renderChrome(); }
+  S.loading="done";
+  render();
+}
+
+/* ================= 初始化 3 台设备 ================= */
+["a","b","c"].forEach(theme=>{
+  Phone(document.getElementById("ph-"+theme), theme);
+});
+
+/* 方案切换 */
+const tabs=[...document.querySelectorAll(".tab")];
+tabs.forEach(t=>t.addEventListener("click",()=>{
+  tabs.forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  const th=t.dataset.theme;
+  document.querySelectorAll(".phone-wrap").forEach((w,i)=>w.classList.toggle("active", i===["a","b","c"].indexOf(th)));
+}));
+</script>
+</body>
+</html>
