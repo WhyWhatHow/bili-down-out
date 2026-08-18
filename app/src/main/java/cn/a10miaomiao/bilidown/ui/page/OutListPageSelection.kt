@@ -3,6 +3,18 @@ package cn.a10miaomiao.bilidown.ui.page
 import cn.a10miaomiao.bilidown.db.dao.OutRecord
 
 /**
+ * 已导出页面过滤"源未知"的记录：
+ * 只展示能定位到源缓存路径（entryDirPath 非空）的记录。
+ * 由 reconcileExportedFiles 校正补回、但无源路径的记录（entryDirPath 为空）会被剔除，
+ * 避免展示来源不明、无法做"删除原视频"操作的文件。
+ */
+fun filterOutSourceUnknown(
+    recordList: List<OutRecord>,
+): List<OutRecord> {
+    return recordList.filter { it.entryDirPath.isNotBlank() }
+}
+
+/**
  * 判断一条已导出记录对应的源缓存是否可被勾选删除（多选删除原视频）。
  * 必须同时满足：
  *  1. 记录已导出成功（status == SUCCESS）；

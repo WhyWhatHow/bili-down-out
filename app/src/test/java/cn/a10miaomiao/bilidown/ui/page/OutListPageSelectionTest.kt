@@ -23,6 +23,27 @@ class OutListPageSelectionTest {
         updateTime = 0L,
     )
 
+    // ---- 源未知记录过滤（filterOutSourceUnknown）边界 ----
+
+    @Test
+    fun `filter out source unknown records`() {
+        val result = filterOutSourceUnknown(
+            listOf(
+                record(1L),                       // entryDirPath 正常，保留
+                record(2L).copy(entryDirPath = ""), // 源未知，剔除
+                record(3L).copy(entryDirPath = "   "), // 空白路径，视为源未知，剔除
+                record(4L, OutRecord.STATUS_WAIT), // 保留（只过滤源未知，不影响状态）
+            )
+        )
+        assertEquals(listOf(1L, 4L), result.map { it.id })
+    }
+
+    @Test
+    fun `filter out source unknown empty list`() {
+        assertTrue(filterOutSourceUnknown(emptyList()).isEmpty())
+        assertTrue(filterOutSourceUnknown(listOf(record(1L).copy(entryDirPath = ""))).isEmpty())
+    }
+
     // ---- isCleanableRecord 边界 ----
 
     @Test
