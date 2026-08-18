@@ -11,3 +11,6 @@ local.properties
 .idea/
 app/signing.properties
 .omo/
+
+# APK 构建产物不入库
+BiliDownOut-*.apk
