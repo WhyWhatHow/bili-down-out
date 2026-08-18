@@ -37,6 +37,7 @@ import cn.a10miaomiao.bilidown.entity.DownloadInfo
 import cn.a10miaomiao.bilidown.entity.DownloadItemInfo
 import cn.a10miaomiao.bilidown.entity.DownloadSortMode
 import cn.a10miaomiao.bilidown.entity.DownloadType
+import cn.a10miaomiao.bilidown.entity.applySort
 import cn.a10miaomiao.bilidown.entity.buildDownloadInfoList
 import cn.a10miaomiao.bilidown.entity.formatFileSize
 import cn.a10miaomiao.bilidown.service.BiliDownService
@@ -241,7 +242,12 @@ fun AuthorPage(
         initial = false,
     ).collectAsState(false)
 
-    val selectedVideos = state.list.filter { selectedKeys.value.contains(it.dir_path) }
+    // 排序状态：默认/文件名/大小，可切换升序↔降序
+    var sortMode by remember { mutableStateOf(DownloadSortMode.DEFAULT) }
+    var sortAsc by remember { mutableStateOf(true) }
+    val sortedList = state.list.applySort(sortMode, sortAsc)
+
+    val selectedVideos = sortedList.filter { selectedKeys.value.contains(it.dir_path) }
     val selectedItems = selectedVideos.flatMap { it.items }
     val totalSize = state.list.sumOf { it.items.sumOf { item -> item.total_bytes } }
 
@@ -327,7 +333,62 @@ fun AuthorPage(
                         }
                     }
                 }
-                items(state.list, { it.dir_path }) { item ->
+                // 排序栏：默认/文件名/大小，点击"文件名/大小"循环切换升序↔降序
+                item(key = "sort_bar") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FilterChip(
+                            selected = sortMode == DownloadSortMode.DEFAULT,
+                            onClick = {
+                                sortMode = DownloadSortMode.DEFAULT
+                                sortAsc = true
+                            },
+                            label = { Text("默认") },
+                        )
+                        FilterChip(
+                            selected = sortMode == DownloadSortMode.NAME,
+                            onClick = {
+                                if (sortMode == DownloadSortMode.NAME) {
+                                    sortAsc = !sortAsc
+                                } else {
+                                    sortMode = DownloadSortMode.NAME
+                                    sortAsc = true
+                                }
+                            },
+                            label = {
+                                Text(
+                                    if (sortMode == DownloadSortMode.NAME) {
+                                        if (sortAsc) "文件名 ↑" else "文件名 ↓"
+                                    } else "文件名"
+                                )
+                            },
+                        )
+                        FilterChip(
+                            selected = sortMode == DownloadSortMode.SIZE,
+                            onClick = {
+                                if (sortMode == DownloadSortMode.SIZE) {
+                                    sortAsc = !sortAsc
+                                } else {
+                                    sortMode = DownloadSortMode.SIZE
+                                    sortAsc = true
+                                }
+                            },
+                            label = {
+                                Text(
+                                    if (sortMode == DownloadSortMode.SIZE) {
+                                        if (sortAsc) "大小 ↑" else "大小 ↓"
+                                    } else "大小"
+                                )
+                            },
+                        )
+                    }
+                }
+                items(sortedList, { it.dir_path }) { item ->
                     DownloadListItem(
                         item = item,
                         selectMode = selectMode,
