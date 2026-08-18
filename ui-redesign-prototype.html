@@ -359,7 +359,16 @@ function Phone(root, theme) {
     const Sd=screen;
     Sd.innerHTML="";
     if(S.screen==="home"){ renderHome(Sd); setTop(null,"哔哩下载","＋"); }
-    else if(S.screen==="author"){ renderAuthor(Sd); setTop(()=>{S.screen="home";render();},"",null); }
+    else if(S.screen==="author"){
+      // 子页标题 = UP 名；右侧「多选/完成」入口按钮，进入后可批量导出
+      const mk=(()=>{ const b=document.createElement("button");
+        b.style.cssText="border:none;background:transparent;color:var(--p-accent);font-size:13px;font-weight:700;cursor:pointer;padding:6px 10px";
+        b.textContent = S.inner ? "完成" : "多选";
+        b.onclick=()=>{ S.inner=!S.inner; S.sel=[]; render(); };
+        return b; })();
+      renderAuthor(Sd);
+      setTop(()=>{ if(S.inner){S.inner=false;S.sel=[];} S.screen="home";render();}, S.author, mk);
+    }
     else if(S.screen==="detail"){ renderDetail(Sd); setTop(()=>{S.screen="author";render();},"",null); }
     else if(S.screen==="queue"){ renderQueue(Sd); setTop(null,"导出队列",""); }
     else if(S.screen==="out"){ renderOut(Sd); setTop(null,"已导出",""); }
@@ -370,6 +379,9 @@ function Phone(root, theme) {
   }
 
   function renderNav(){
+    // UP 主页 / 详情页为子页，不显示底部导航；其余 4 个一级页面显示
+    const isSub = S.screen==="author" || S.screen==="detail";
+    nav.style.display = isSub ? "none" : "flex";
     nav.innerHTML="";
     NAVS.forEach(nv=>{
       const d=document.createElement("div"); d.className="ni"+(S.screen===nv.k?" on":"");
@@ -434,10 +446,11 @@ function Phone(root, theme) {
           <div class="g-sub">${g.videos}个视频 · ${g.size}</div>
         </div>
         <span class="arrow ${S.folders[g.author]?'open':''}">›</span>`;
-      head.onclick=(e)=>{
-        if (e.target.closest("."+"cb")) return;
-        S.folders[g.author]=!S.folders[g.author]; render();
-      };
+      // 点箭头：展开/收起分组
+      head.querySelector(".arrow").onclick=(e)=>{ e.stopPropagation(); S.folders[g.author]=!S.folders[g.author]; render(); };
+      // 点头像/名称区：进入该 UP 主主页
+      head.querySelector(".meta").onclick=(e)=>{ e.stopPropagation(); S.author=g.author; S.screen="author"; render(); };
+      head.querySelector(".avatar").onclick=(e)=>{ e.stopPropagation(); S.author=g.author; S.screen="author"; render(); };
       Sd.append(head);
       if(S.folders[g.author]){
         const body=document.createElement("div"); body.style.cssText="border-bottom:1px solid var(--p-line);padding-bottom:2px";
@@ -446,8 +459,7 @@ function Phone(root, theme) {
           const d=document.createElement("div");
           d.innerHTML=card(it,k,S.inner);
           d.querySelector(".vcard").style.cursor="pointer";
-          d.querySelector(".vcard").onclick=(e)=>{ if(e.target.closest(".cb"))return;
-            if(S.inner){ togSel(k); } else { S.detail=it; S.screen="detail"; render(); } };
+          d.querySelector(".vcard").onclick=(e)=>{ if(S.inner){ togSel(k); return; } S.author=g.author; S.detail=it; S.screen="detail"; render(); };
           d.querySelector(".vcard").oncontextmenu=(e)=>{ e.preventDefault(); S.inner=true; if(!S.sel.includes(k))S.sel.push(k); render(); };
           body.append(d);
         });
