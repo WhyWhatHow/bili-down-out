@@ -1,5 +1,6 @@
 package cn.a10miaomiao.bilidown.ui.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
@@ -21,6 +22,7 @@ fun FileNameInputDialog(
     showInputDialog: Boolean,
     fileName: String,
     confirmText: String,
+    author: String = "",
     onDismiss: () -> Unit,
     onConfirm: (outFile: BiliDownOutFile) -> Unit,
 ) {
@@ -40,13 +42,13 @@ fun FileNameInputDialog(
     }
 
     fun handleConfirm() {
-        val name = value.text + ".mp4"
-        if (name.isBlank()) {
+        // 统一清洗：去空格 + 去除文件系统非法字符（\/:*?"<>|）
+        val cleaned = BiliDownOutFile.sanitizeFileName(value.text)
+        if (cleaned.isBlank()) {
             errorText = "文件名不能为空"
-        } else if (name.indexOf(' ') > 0) {
-            errorText = "文件名不能含有格"
         } else {
-            val outFile = BiliDownOutFile(name)
+            val name = cleaned + ".mp4"
+            val outFile = BiliDownOutFile(name, author)
             if (outFile.exists()) {
                 errorText = "文件已存在"
             } else {
@@ -68,31 +70,35 @@ fun FileNameInputDialog(
             onDismissRequest = onDismiss,
             title = { Text(text = "输入文件名：") },
             text = {
-                TextField(
-                    label = {
-                        Text(text = "文件名")
-                    },
-                    trailingIcon = {
-                        Text(text = ".mp4")
-                    },
-                    supportingText = {
-                        Text(text = errorText)
-                    },
-                    isError = errorText.isNotBlank(),
-                    value = value,
-                    onValueChange = {
-                        value = it
-                        errorText = ""
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = { handleConfirm() }
-                    ),
-                )
+                Column {
+                    TextField(
+                        label = {
+                            Text(text = "文件名")
+                        },
+                        trailingIcon = {
+                            Text(text = ".mp4")
+                        },
+                        supportingText = {
+                            Text(text = errorText)
+                        },
+                        isError = errorText.isNotBlank(),
+                        value = value,
+                        onValueChange = {
+                            value = it
+                            errorText = ""
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { handleConfirm() }
+                        ),
+                    )
+                    // 「导出后删除源文件」由设置页全局控制：
+                    // 已开启时不再弹出提示（用户已知情），未开启时无破坏性行为也无需提示。
+                }
             },
             confirmButton = {
                 TextButton(

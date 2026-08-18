@@ -10,13 +10,17 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import cn.a10miaomiao.bilidown.BiliDownApp
+import cn.a10miaomiao.bilidown.common.BiliAuthorRepository
 import cn.a10miaomiao.bilidown.common.BiliDownFile
 import cn.a10miaomiao.bilidown.common.BiliDownOutFile
+import cn.a10miaomiao.bilidown.common.datastore.DataStoreKeys
+import cn.a10miaomiao.bilidown.common.datastore.rememberDataStorePreferencesFlow
 import cn.a10miaomiao.bilidown.common.file.MiaoDocumentFile
 import cn.a10miaomiao.bilidown.common.file.MiaoJavaFile
 import cn.a10miaomiao.bilidown.common.molecule.collectAction
 import cn.a10miaomiao.bilidown.common.molecule.rememberPresenter
 import cn.a10miaomiao.bilidown.db.dao.OutRecord
+import cn.a10miaomiao.bilidown.entity.BiliDownloadEntryInfo
 import cn.a10miaomiao.bilidown.entity.DownloadInfo
 import cn.a10miaomiao.bilidown.entity.DownloadItemInfo
 import cn.a10miaomiao.bilidown.entity.DownloadType
@@ -40,6 +44,7 @@ sealed class DownloadDetailPageAction {
     class Export(
         val entryDirPath: String,
         val outFile: BiliDownOutFile,
+        val deleteSource: Boolean = false,
     ): DownloadDetailPageAction()
 
     class AddTask(
@@ -47,6 +52,7 @@ sealed class DownloadDetailPageAction {
         val outFilePath: String,
         val title: String,
         val cover: String,
+        val deleteSource: Boolean = false,
     ): DownloadDetailPageAction()
 }
 
@@ -84,7 +90,29 @@ fun DownloadDetailPagePresenter(
         } else {
             MiaoJavaFile(File(dirPath))
         }
-        val list = biliDownFile.readDownloadDirectory(dirFile)
+        val rawList = biliDownFile.readDownloadDirectory(dirFile)
+        // entry.json 无 owner 时，通过 B 站公开 API 在线补全 UP 主名称
+        val list = rawList.map { item ->
+            if (item.entry.author.isBlank()) {
+                val author = BiliAuthorRepository.getAuthor(
+                    avid = item.entry.avid,
+                    bvid = item.entry.bvid,
+                )
+                if (author == null) {
+                    item
+                } else {
+                    item.copy(
+                        entry = item.entry.copy(
+                            owner = BiliDownloadEntryInfo.OwnerInfo(name = author.name)
+                        )
+                    )
+                }
+            } else {
+                item
+            }
+        }
+        // 补全结果（含负缓存）统一落盘
+        BiliAuthorRepository.persist()
         val items = mutableListOf<DownloadItemInfo>()
         var isCompleted = true
         list.forEach {
@@ -97,7 +125,7 @@ fun DownloadDetailPagePresenter(
             var type = DownloadType.VIDEO
             val page = biliEntry.page_data
             if (page != null) {
-                id = biliEntry.avid!!
+                id = biliEntry.avid ?: id
                 indexTitle = page.download_title ?: page.part ?: "${page.page}P"
                 cid = page.cid
                 type = DownloadType.VIDEO
@@ -106,7 +134,7 @@ fun DownloadDetailPagePresenter(
             val ep = biliEntry.ep
             val source = biliEntry.source
             if (ep != null && source != null) {
-                id = biliEntry.season_id!!.toLong()
+                id = biliEntry.season_id?.toLongOrNull() ?: id
                 indexTitle = ep.index_title
                 epid = ep.episode_id
                 cid = source.cid
@@ -127,6 +155,7 @@ fun DownloadDetailPagePresenter(
                 cid = cid,
                 epid = epid,
                 index_title = indexTitle,
+                author = biliEntry.author,
             )
             items.add(item)
             if (!item.is_completed) {
@@ -160,6 +189,7 @@ fun DownloadDetailPagePresenter(
                 cid = item.cid,
                 id = item.id,
                 type = item.type,
+                author = biliEntry.author,
                 items = items
             )
         }
@@ -171,6 +201,7 @@ fun DownloadDetailPagePresenter(
                 val isSuccess = biliDownService.exportBiliVideo(
                     it.entryDirPath,
                     it.outFile.file,
+                    it.deleteSource,
                 )
                 if (isSuccess) {
                     navController.navigate(BiliDownScreen.Progress.route) {
@@ -189,7 +220,8 @@ fun DownloadDetailPagePresenter(
                     it.entryDirPath,
                     it.outFilePath,
                     it.title,
-                    it.cover
+                    it.cover,
+                    it.deleteSource,
                 )
             }
         }
@@ -215,10 +247,37 @@ fun DownloadDetailPage(
     var selectedItem by remember {
         mutableStateOf<DownloadItemInfo?>(null)
     }
+    val deleteSourceEnabled by rememberDataStorePreferencesFlow(
+        context = context,
+        key = DataStoreKeys.exportDeleteSource,
+        initial = false,
+    ).collectAsState(false)
+
+    fun sendExportAction(
+        item: DownloadItemInfo,
+        outFile: BiliDownOutFile,
+    ) {
+        if (taskStatus is TaskStatus.InIdle) {
+            channel.trySend(DownloadDetailPageAction.Export(
+                entryDirPath = item.dir_path,
+                outFile = outFile,
+                deleteSource = deleteSourceEnabled,
+            ))
+        } else {
+            channel.trySend(DownloadDetailPageAction.AddTask(
+                entryDirPath = item.dir_path,
+                outFilePath = outFile.path,
+                title = outFile.name,
+                cover = item.cover,
+                deleteSource = deleteSourceEnabled,
+            ))
+        }
+    }
 
     FileNameInputDialog(
         showInputDialog = selectedItem != null,
         fileName = selectedItem?.title ?: "",
+        author = selectedItem?.author ?: "",
         onDismiss = {
             selectedItem = null
         },
@@ -227,19 +286,7 @@ fun DownloadDetailPage(
         } else { "添加到队列" },
         onConfirm = { outFile ->
             selectedItem?.let { item ->
-                if (taskStatus is TaskStatus.InIdle) {
-                    channel.trySend(DownloadDetailPageAction.Export(
-                        entryDirPath = item.dir_path,
-                        outFile = outFile,
-                    ))
-                } else {
-                    channel.trySend(DownloadDetailPageAction.AddTask(
-                        entryDirPath = item.dir_path,
-                        outFilePath = outFile.path,
-                        title = outFile.name,
-                        cover = item.cover
-                    ))
-                }
+                sendExportAction(item, outFile)
             }
             selectedItem = null
         }
